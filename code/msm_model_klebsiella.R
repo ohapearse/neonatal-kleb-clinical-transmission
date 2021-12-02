@@ -32,6 +32,35 @@ delr <- function(id){
   return(end)
 }
 
+individual_int <- function(data, id, idvalues, status, interval){
+  #NOTE THIS FUNCTION CANNOT HANDLE DATA COMPOSED OF JUST A SINGLE ROW
+   df_id <- data[data[[id]] == idvalues,]
+   intvect <- sort(df_id[[interval]])
+   overall <- data.frame()
+     for(i in 1:(length(intvect) - 1)){
+       int <- intvect[i + 1] - intvect[i] - 1
+       if(int < 1){
+         int <- 1
+       }
+       data_orig <- df_id[i,]
+       data_clone <- df_id[rep(i, int),]
+       data_clone[[status]] <- 999
+       each_day <- seq(intvect[i] + 1, intvect[i + 1])
+       if(length(each_day) > 1){
+         days_passing <- head(each_day, -1)
+         data_clone[[interval]] <- days_passing
+       } else {
+         data_clone <- NULL
+       }
+         overall <- rbind(overall, data_orig, data_clone)
+     }
+   overall <- rbind(overall, df_id[length(intvect),])
+   return(overall)
+}
+
+individual_int(data = msm_kleb3, id = "Neo", idvalues = "VCZRH", status = "Klebsiella.pneumoniae", interval = "interval")
+
+
 #loading data ----
 kleb <- read.csv(here("data", "neo_kleb_msm_data.csv"))
 kleb_baseline <- read.csv(here("data", "kleb_tind_surv.csv"))
