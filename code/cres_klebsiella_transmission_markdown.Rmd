@@ -1,0 +1,2959 @@
+---
+title: "Extended-Spectrum Beta-Lactamase Klebsiella pneumoniae on a Malawian neonatal unit is amplified by neonates and transmitted by maternal hands, cots and ward surfaces: Figures"
+output:
+  html_document:
+    df_print: paged
+  word_document:
+csl: the-lancet-infectious-diseases.csl
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,
+                      dpi = 600)
+```
+
+```{r intro, echo = FALSE, message = FALSE, warning = FALSE}
+
+#INSTALLING PACKAGES
+library(sf)
+library(tidyverse)
+library(flextable)
+library(ggpubr)
+library(here)
+library(lubridate)
+library(ggpubr)
+library(Gmisc)
+library(survival)
+library(igraph)
+library(statnet)
+theme_update(text = element_text(size = 16))
+theme_set(theme_bw())
+
+#FUNCTIONS
+#writes in brackets
+brackets <- function(x, y, ...){
+  text <- paste(paste(x, " (", y, ..., ")", sep = ""))
+  return(text)
+}
+
+#calculates percent
+percent <- function(top, bottom, z = 0){
+  result <- round(top / bottom * 100, digits = z)
+  return(result)
+}
+
+#finds credible intervals from posterior
+cri_finder <- function(data){
+  data2 <- sort(data)
+  upper <- nth(data2, n = length(data) / 100 * 97.5)
+  lower <- nth(data2, n = length(data) / 100 * 2.5)
+  median <- median(data2)
+  #name <- deparse(substitute(data))
+  all <- c(lower, median, upper)
+  return(all)
+}
+
+#defining a circle with a different vertex frame width for networks
+mycircle <- function(coords, v=NULL, params) {
+  vertex.color <- params("vertex", "color")
+  if (length(vertex.color) != 1 && !is.null(v)) {
+    vertex.color <- vertex.color[v]
+  }
+  vertex.size  <- 1/200 * params("vertex", "size")
+  if (length(vertex.size) != 1 && !is.null(v)) {
+    vertex.size <- vertex.size[v]
+  }
+  vertex.frame.color <- params("vertex", "frame.color")
+  if (length(vertex.frame.color) != 1 && !is.null(v)) {
+    vertex.frame.color <- vertex.frame.color[v]
+  }
+  vertex.frame.width <- params("vertex", "frame.width")
+  if (length(vertex.frame.width) != 1 && !is.null(v)) {
+    vertex.frame.width <- vertex.frame.width[v]
+  }
+
+  mapply(coords[,1], coords[,2], vertex.color, vertex.frame.color,
+         vertex.size, vertex.frame.width,
+         FUN=function(x, y, bg, fg, size, lwd) {
+           symbols(x=x, y=y, bg=bg, fg=fg, lwd=lwd,
+                   circles=size, add=TRUE, inches=FALSE)
+         })
+}
+
+#performs expit
+expit <- function(x){
+  output <- exp(x) / (1 + exp(x))
+  return(output)
+}
+
+#this function filters the dataframes based on st and being in the same neonate
+def_snpcutoff <- function(data){
+  df <- data %>%
+    mutate(samest = case_when(ST.x == ST.y ~ "same ST",
+                              TRUE ~ "diff ST")) %>%
+    filter(source.x == "Neonate's stool" & source.y == "Neonate's stool") %>%
+    filter(dyad.x == dyad.y) %>%
+    filter(samest == "same ST")
+  return(df)
+}
+
+dataprep_density <- function(data, variable){
+  cri <- cri_finder(data[[variable]])
+  density <- data.frame(x = density(data[[variable]], n = 2048)$x,
+                        data = density(data[[variable]], n = 2048)$y,
+                        data_95 = density(data[[variable]], n = 2048)$y,
+                        name = variable)
+  density$data_95[density$x < cri[1]] <- 0
+  density$data_95[density$x > cri[3]] <- 0
+  return(density)
+}
+
+#input: dataframe of snp distances and relationships, id of neonate
+#output: trimmed dataframe for the neonate with only the entries matching those epidemiological criteria remaining
+trim_sources <- function(data, id){
+  df <- data[data$Lane.x == id, ]
+  df <- df %>%
+    filter(between(sample_interval, 1, 14))
+    #mutate(interval = interval(sample_date.x -14, sample_date.x -1)) %>%
+    #filter(sample_date.y %within% interval)
+  return(df)
+}
+
+#input: dataframe of snp distances and relationships, id of neonate
+#output: trimmed dataframe for the neonate with only the entries matching those epidemiological criteria remaining
+trim_sources_notime <- function(data, id){
+  df <- data[data$Lane.x == id, ]
+  return(df)
+}
+
+trim_sources_mgems <- function(data, id){
+  df <- data[data$IDx == id, ]
+  df <- df %>%
+    filter(between(sample_interval, 1, 14))
+  return(df)
+}
+
+#DATA TO INCLUDE
+#clinical data
+dyads <- read.csv(here("data_markdown", "list_dyads.csv"))
+mat <- read.csv(here("data_markdown", "maternal_crf_qual.csv"))
+lolly_kleb_1 <- read.csv(here("data_markdown", "lolly_plot_1.csv"))
+lolly_kleb_2 <- read.csv(here("data_markdown", "lolly_plot_2.csv"))
+lab_all <- read.csv(here("data_markdown", "lab_long_complete_data_qual.csv")) %>%
+  select(-Date.Received)
+all_surv <- read.csv(here("data_markdown", "neonatal_stool_survival_qual_all.csv"))
+ecoli_surv <- read.csv(here("data_markdown", "neonatal_stool_survival_qual_ecoli.csv"))
+entero_surv <- read.csv(here("data_markdown", "neonatal_stool_survival_qual_entero.csv"))
+acineto_surv <- read.csv(here("data_markdown", "neonatal_stool_survival_qual_acineto.csv"))
+kleb_surv <- read.csv(here("data_markdown", "neonatal_stool_survival_qual_kleb.csv"))
+screen <- read.csv(here("data_markdown", "screen_data.csv"))
+labour <- read.csv(here("data_markdown", "labour_crf_qual_markdown.csv"))
+env <- read.csv(here("data_markdown", "env_specific_data.csv"))
+neo_covariates_network <- read.csv(here("data", "neo_cov_manuscript.csv"))
+
+#outputs of python models
+#state transition model
+alpha_0  <- read.csv(here("data_markdown", "alpha_0_data.csv"))
+alpha_mum  <- read.csv(here("data_markdown", "alpha_mum_data.csv"))
+phi <- read.csv(here("data_markdown", "phi_data.csv"))
+beta_neo  <- read.csv(here("data_markdown", "beta_neo_data.csv"))
+beta_mother  <- read.csv(here("data_markdown", "beta_mother_data.csv"))
+rhats_data <- read.csv(here("data_markdown", "combined_rhat_pd.csv"))
+#source attribution model
+q_posterior_raw <- read.csv(here("data_markdown", "q_attribution_posterior.csv"), header = FALSE)
+source_posterior <- read.csv(here("data_markdown", "sources_attribution_posterior.csv"), header = FALSE)
+source_attribution <- read.csv(here("data_markdown", "source_attribution_norepeats.csv"))
+#source attribution model msweep
+q_posterior_raw_msweep <- read.csv(here("data_markdown", "q_attribution_posterior_msweep.csv"), header = FALSE)
+source_posterior_msweep <- read.csv(here("data_markdown", "sources_attribution_posterior_msweep.csv"), header = FALSE)
+source_attribution_msweep <- read.csv(here("data_markdown", "source_attribution_norepeats_msweep.csv"))
+
+#genomic data
+reftran <- read.csv(here("data_markdown", "snps_metadata_wgs.csv"))
+reftran_mgems <- read.csv(here("data_markdown", "snps_metadata_mgems.csv"))
+timediff <- as.matrix(read.csv(here("data_markdown", "timediff_cotnetwork.csv"), 
+                     header = FALSE))
+neo_all_network_zero <- read.csv(here("data_markdown", "wgs_network_zero.csv"))
+neo_all_network_three <- read.csv(here("data_markdown", "wgs_network_three.csv"))
+neo_all_network_seven <- read.csv(here("data_markdown", "wgs_network_seven.csv"))
+neo_all_network_twenty <- read.csv(here("data_markdown", "wgs_network_twenty.csv"))
+neo_all_network_mgems_zero <- read.csv(here("data_markdown", "mgems_network_zero.csv"))
+neo_all_network_mgems_three <- read.csv(here("data_markdown", "mgems_network_three.csv"))
+neo_all_network_mgems_seven <- read.csv(here("data_markdown", "mgems_network_seven.csv"))
+neo_all_network_mgems_twenty <- read.csv(here("data_markdown", "mgems_network_twenty.csv"))
+stmeta_wgs <- read.csv(here("data_markdown", "wgs_stdata_study_invasive.csv")) %>%
+  #actual sample dates have been jittered by + or - 14 days to preserve anonymity
+  mutate(sample_date = ymd(sample_date))
+
+envboth <- read.csv(here("data_markdown", "wgs_st_invasive.csv"))
+envboth_stool <- read.csv(here("data_markdown", "wgs_st_stool.csv"))
+envboth_msweep <- read.csv(here("data_markdown", "msweep_st_invasive.csv"))
+envboth_stool_msweep <- read.csv(here("data_markdown", "msweep_st_stool.csv"))
+st_bymonth_prop <- read.csv(here("data_markdown", "st_ward_bymonth.csv")) %>%
+  mutate(month = ymd(month))
+
+```
+
+```{r preparing table 1, echo = FALSE} 
+#preparing data for table 1
+
+#BASELINE DATA -----
+#number of participants screened
+num_screen <- length(screen$mat_age)
+#number of participants recruited
+num_recruit <- length(dyads$X)
+#determining some of the baseline characteristics
+total <- length(dyads$Mat)
+#gestational age
+gest_quant <- quantile(labour$gestage)
+gest_lq <- quantile(labour$gestage, 1/4)
+gest_uq <- quantile(labour$gestage, 3/4)
+gest_med <- quantile(labour$gestage, 1/2)
+gest_prem <- sum(labour$gestage < 37)
+gest_not <- sum(labour$gestage >= 37)
+gest_uk <- total - length(labour$gestage)
+neo <- neo_covariates_network %>%
+  mutate(wt = wt * 1000)
+#birthweight
+bw_mean <- mean(neo$wt)
+bw_sd <- round(sd(neo$wt), digits = 0)
+hbw <- sum(neo$wt > 4200)
+nbw <- sum(neo$wt >= 2500)
+lbw <- sum(neo$wt < 2500 & neo$wt >= 1500)
+vlbw <- sum(neo$wt < 1500 & neo$wt >= 1000)
+elbw <- sum(neo$wt <1000)
+bw_uk <- total - length(neo$wt)
+#sex
+sex_f <- sum(neo$sex == 1, na.rm = TRUE)
+sex_m <- sum(neo$sex == 0, na.rm = TRUE)
+sex_uk <- total - length(neo$sex)
+#age at recruitment
+age_lq <- quantile(labour$recruit_day, 1/4)
+age_uq <- quantile(labour$recruit_day, 3/4)
+age_med <- quantile(labour$recruit_day, 1/2)
+#don't forget to write about outliers in the text
+age_outliers <- labour$recruit_day[labour$recruit_day > 5]
+#maternal hiv
+hiv_y <- sum(mat$mathiv == 1, na.rm = TRUE)
+hiv_n <- sum(mat$mathiv == 0, na.rm = TRUE)
+hiv_uk <- sum(is.na(mat$mathiv))
+#maternal hiv is documented as the number of babies that are exposed to hiv pos mother,
+#not the number of mothers that are hiv positive
+#antenatal care
+anc_y <- sum(mat$matanc == 1, na.rm = TRUE)
+anc_n <- sum(mat$matanc == 0, na.rm = TRUE)
+anc_uk <- sum(is.na(mat$matanc))
+#maternal antibiotics
+matabx_y <- sum(mat$matabx == 1, na.rm = TRUE)
+matabx_n <- sum(mat$matabx == 0, na.rm = TRUE)
+matabx_uk <- sum(is.na(mat$matabx))
+#delivery mode
+del_vag <- sum(labour$dlivmod == 1, na.rm = TRUE)
+del_cs <- sum(labour$dlivmod == 2, na.rm = TRUE)
+del_uk <- total - length(labour$dlivmod)
+#delivery location
+#other (5) means born on the way to the hospital
+loc_qech <- sum(labour$delivloc == 0, na.rm = TRUE)
+loc_hosp <- sum(labour$delivloc == 1, na.rm = TRUE)
+loc_clin <- sum(labour$delivloc == 2, na.rm = TRUE)
+loc_home <- sum(labour$delivloc == 4, na.rm = TRUE)
+loc_amb <- sum(labour$delivloc == 5, na.rm = TRUE)
+loc_uk <- total - length(labour$delivloc)
+#number of fetuses
+single <- sum(mat$no_babies == 1, na.rm = TRUE)
+twin <- sum(mat$no_babies == 2, na.rm = TRUE)
+triplet <- sum(mat$no_babies == 3, na.rm = TRUE)
+num_uk <- sum(is.na(mat$no_babies))
+
+
+#table with all the baseline data in it
+char <- data.frame(
+  Category = c("Patient numbers",
+               "Gestational age", 
+               "",
+               "",
+               "",
+               "Birth weight",
+               "",
+               "",
+               "",
+               "",
+               "",
+               "Sex",
+               "",
+               "",
+               "Age of recruitment",
+               "HIV status",
+               "",
+               "",
+               "Antenatal care",
+               "",
+               "",
+               "Maternal antibiotics in last 4 weeks",
+               "",
+               "",
+               "Mode of delivery",
+               "",
+               "",
+               "Place of delivery",
+               "",
+               "",
+               "",
+               "",
+               "",
+               "Number of neonates born",
+               "",
+               "",
+               ""
+               ),
+  Parameter = c("N", 
+                "Gestational age in weeks, median (IQR)",
+                "37 weeks gestation or more, n (%)",
+                "Less than 37 weeks gestation, n (%)",
+                "Unknown, n (%)",
+                "Mean (SD)",
+                "Normal birthweight, n (%)",
+                "Low birthweight (LBW), n (%)",
+                "Very low birthweight (VLBW), n (%)",
+                "Extremely low birthweight (ELBW), n (%)",
+                "Unknown, n (%)",
+                "Female, n (%)",
+                "Male, n (%)",
+                "Unknown, n (%)",
+                "Median, (IQR)",
+                "Positive, n (%)",
+                "Negative, n (%)",
+                "Unknown, n (%)",
+                "Received, n (%)",
+                "Not received, n (%)",
+                "Unknown, n (%)",
+                "Received, n (%)",
+                "Not received, n (%)",
+                "Unknown, n (%)",
+                "Vaginal delivery",
+                "Caesarean section",
+                "Unknown",
+                "This hospital",
+                "Other clinic",
+                "Other hospital",
+                "Home",
+                "On the way to hospital",
+                "Unknown",
+                "Singleton",
+                "Twins",
+                "Triplets",
+                "Unknown"
+                ),
+  Value = c(length(dyads$Neo),
+            brackets(gest_med, gest_lq, "-", gest_uq),
+            brackets(gest_not, percent(gest_not, total)),
+            brackets(gest_prem,  percent(gest_prem, total)),
+            brackets(gest_uk, percent(gest_uk, total)),
+            brackets(bw_mean, bw_sd),
+            brackets(nbw, percent(nbw, total)),
+            brackets(lbw, percent(lbw, total)),
+            brackets(vlbw, percent(vlbw, total)),
+            brackets(elbw, percent(elbw, total)),
+            brackets(bw_uk, percent(bw_uk, total)),
+            brackets(sex_f, percent(sex_f, total)),
+            brackets(sex_m, percent(sex_m, total)),
+            brackets(sex_uk, percent(sex_uk, total)),
+            brackets(age_med, age_lq, "-", age_uq),
+            brackets(hiv_y, percent(hiv_y, total)),
+            brackets(hiv_n, percent(hiv_n, total)),
+            brackets(hiv_uk, percent(hiv_uk, total)),
+            brackets(anc_y, percent(anc_y, total)),
+            brackets(anc_n, percent(anc_n, total)),
+            brackets(anc_uk, percent(anc_uk, total)),
+            brackets(matabx_y, percent(matabx_y, total)),
+            brackets(matabx_n, percent(matabx_n, total)),
+            brackets(matabx_uk, percent(matabx_uk, total)),
+            brackets(del_vag, percent(del_vag, total)),
+            brackets(del_cs, percent(del_cs, total)),
+            brackets(del_uk, percent(del_uk, total)),
+            brackets(loc_qech, percent(loc_qech, total)),
+            brackets(loc_clin, percent(loc_clin, total)),
+            brackets(loc_hosp, percent(loc_hosp, total)),
+            brackets(loc_home, percent(loc_home, total)),
+            brackets(loc_amb, percent(loc_amb, total)),
+            brackets(loc_uk, percent(loc_uk, total)),
+            brackets(single, percent(single, total)),
+            brackets(twin, percent(twin, total)),
+            brackets(triplet, percent(triplet, total)),
+            brackets(num_uk, percent(num_uk, total))
+            )
+)
+
+```
+
+
+```{r laboratory data, echo = FALSE, warning = FALSE}
+#preparing laboratory data
+lab_timepoints <- lab_all %>%
+  mutate(timepoint = case_when(startsWith(Specimen.ID, "CIS") ~ "Admission",
+                               TRUE ~ "Other")) %>%
+  mutate(Source = case_when(grepl("#", Source) ~ "Ward surfaces",
+                             Source == "0" ~ "Mother Hand",
+                             Source == "Child Rectal" ~ "Child Stool",
+                             Source == "Mother Rectal" ~ "Mother Stool",
+                             Specimen.ID == "CIS15EH1G" ~ "Mother Stool",
+                             Specimen.ID == "CIS15DH1G" ~ "Mother Stool",
+                             Source == "Other" ~ "Ward surfaces",
+                             TRUE ~ Source)) %>%
+  filter(Source != "Kitchen") %>%
+  mutate(present = 1) %>%
+  pivot_wider(id_cols = c("Specimen.ID", "timepoint", 
+                          "Source"),
+              values_from = "present",
+              names_from = "Organism2",
+              values_fill = 0,
+              values_fn = max) %>%
+  mutate(yes = 1)
+
+#esbls for all timepoints
+lab_allorganisms <- lab_timepoints %>%
+  group_by(Source) %>%
+  summarise(total = sum(yes),
+            nogrowth = sum(`No growth`),
+            kleb = sum(`Klebsiella pneumoniae`),
+            entero = sum(`Enterobacter spp.`),
+            other = sum(`Other Gram negatives`),
+            ecoli = sum(`Escherichia coli`),
+            acineto = sum(`Acinetobacter baumannii`),
+            salmon = sum(`Salmonella spp.`)
+            ) %>%
+  pivot_longer(cols = c("nogrowth",
+                        "kleb",
+                        "entero",
+                        "other",
+                        "ecoli",
+                        "acineto",
+                        "salmon"),
+               names_to = "organism",
+               values_to = "n") %>%
+  mutate(n = case_when(organism == "nogrowth" ~ total - n,
+                   TRUE ~ n),
+         organism = case_when(organism == "nogrowth" ~ "esbl",
+                              TRUE ~ organism)) %>%
+  mutate(prop = percent(n, total)) %>%
+  mutate(ci = sqrt((prop) * (100 - prop) / total) * 1.96) %>%
+  mutate(time = "All timepoints") %>%
+  mutate(organism = fct_relevel(organism, c("esbl",
+                                            "kleb",
+                                            "ecoli",
+                                            "acineto",
+                                            "entero",
+                                            "other",
+                                            "salmon"))) %>%
+  mutate(Source = fct_relevel(Source, 
+                              "Child Stool",
+                              "Mother Stool",
+                              "Mother Hand",
+                              "Chitenje",
+                              "Cot",
+                              "Staff Hand",
+                              "Ward surfaces"))
+
+lab_klebandesbl <- lab_allorganisms %>%
+  filter(organism == "esbl" |
+           organism == "kleb")
+
+```
+
+```{r kaplan meier bacterial colonisation data, echo = FALSE, warning = FALSE, message =  FALSE}
+
+#survival models
+all_survival <- survfit(Surv(time, status) ~ 1, data = all_surv)
+kleb_survival <- survfit(Surv(time, status) ~ 1, data = kleb_surv)
+ecoli_survival <- survfit(Surv(time, status) ~ 1, data = ecoli_surv)
+entero_survival <- survfit(Surv(time, status) ~ 1, data = entero_surv)
+acineto_survival <- survfit(Surv(time, status) ~ 1, data = acineto_surv)
+
+#median 
+all_surv_med <- c(all_survival$time[min(which(all_survival$surv < 0.5))], all_survival$time[min(which(all_survival$lower < 0.5))], all_survival$time[min(which(all_survival$upper < 0.5))])
+kleb_surv_med <- c(kleb_survival$time[min(which(kleb_survival$surv < 0.5))], kleb_survival$time[min(which(kleb_survival$lower < 0.5))], kleb_survival$time[min(which(kleb_survival$upper < 0.5))])
+ecoli_surv_med <- c(ecoli_survival$time[min(which(ecoli_survival$surv < 0.5))], ecoli_survival$time[min(which(ecoli_survival$lower < 0.5))], ecoli_survival$time[min(which(ecoli_survival$upper < 0.5))])
+entero_surv_med <- c(entero_survival$time[min(which(entero_survival$surv < 0.5))], entero_survival$time[min(which(entero_survival$lower < 0.5))], entero_survival$time[min(which(entero_survival$upper < 0.5))])
+acineto_surv_med <- c(acineto_survival$time[min(which(acineto_survival$surv < 0.5))], acineto_survival$time[min(which(acineto_survival$lower < 0.5))], acineto_survival$time[min(which(acineto_survival$upper < 0.5))])
+
+#proportion at 7 days
+all_surv_seven <- c(1 - all_survival$surv[which(all_survival$time == 7)], 1 - all_survival$lower[which(all_survival$time == 7)], 1 - all_survival$upper[which(all_survival$time == 7)])
+kleb_surv_seven <- c(1 - kleb_survival$surv[which(kleb_survival$time == 7)], 1 - kleb_survival$lower[which(kleb_survival$time == 7)], 1 - kleb_survival$upper[which(kleb_survival$time == 7)])
+ecoli_surv_seven <- c(1 - ecoli_survival$surv[which(ecoli_survival$time == 7)], 1 - ecoli_survival$lower[which(ecoli_survival$time == 7)], 1 - ecoli_survival$upper[which(ecoli_survival$time == 7)])
+entero_surv_seven <- c(1 - entero_survival$surv[which(entero_survival$time == 7)], 1 - entero_survival$lower[which(entero_survival$time == 7)], 1 - entero_survival$upper[which(entero_survival$time == 7)])
+acineto_surv_seven <- c(1 - acineto_survival$surv[which(acineto_survival$time == 7)], 1 - acineto_survival$lower[which(acineto_survival$time == 7)], 1 - acineto_survival$upper[which(acineto_survival$time == 7)])
+
+
+```
+
+
+```{r st data, echo = FALSE, message = FALSE, warning = FALSE}
+#preparing st data and comparing sts causing invasive infection and stool colonisation to those in the environment
+inv_stmeta <- stmeta_wgs %>%
+  filter(source == "Invasive")
+
+stmeta_small <- stmeta_wgs %>%
+  filter(source != "Invasive")
+
+#numbers of sample sources
+numbers <- stmeta_wgs %>%
+  group_by(source) %>%
+  count()
+
+#number of isolates of each ST
+st_numbers <- stmeta_small %>% 
+  group_by(ST) %>% 
+  count() %>%
+  rename(total_n = n)
+
+st_inv <- inv_stmeta %>% 
+  group_by(ST) %>% 
+  count() %>%
+  filter(!is.na(ST))
+
+st_numbersinv <- st_inv %>%
+  rename(invasive_n = n) %>%
+  full_join(st_numbers, by = "ST") %>% 
+  replace_na(list(total_n = 0, invasive_n = 0))
+
+st_numbers_stool <- stmeta_wgs %>% 
+  filter(source == "Neonate's stool") %>% 
+  count(ST) %>%
+  rename(stool_n = n) %>%
+  full_join(st_numbersinv, by = "ST") %>% 
+  replace_na(list(total_n = 0, invasive_n = 0, stool_n = 0))
+
+#moderate correlation
+correlation_inv_stool <- cor.test(x = st_numbers_stool$stool_n, y = st_numbers_stool$invasive_n, method = "spearman")
+
+envnull <- envboth %>%
+  filter(arm == "null")
+envbeforeinv <- envboth %>%
+  filter(arm == "test")
+envafterinv <- envboth %>%
+  filter(arm == "after")
+
+#median for the different timepoints 
+median_random <- median(envnull$prop)
+median_before <- median(envbeforeinv$prop)
+median_after <- median(envafterinv$prop)
+
+wil.null.before <- wilcox.test(envnull$prop, envbeforeinv$prop)
+wil.before.after <- wilcox.test(envbeforeinv$prop, envafterinv$prop)
+wil.null.after <- wilcox.test(envnull$prop, envafterinv$prop)
+
+envnull_stool <- envboth_stool %>%
+  filter(arm == "null")
+envbeforestool <- envboth_stool %>%
+  filter(arm == "test")
+envafterstool <- envboth_stool %>%
+  filter(arm == "after")
+
+#median for the different timepoints 
+median_randomstool <- median(envnull_stool$prop)
+median_beforestool <- median(envbeforestool$prop)
+median_afterstool <- median(envafterstool$prop)
+
+wil.null.before.stool <- wilcox.test(envnull_stool$prop, envbeforestool$prop)
+wil.before.after.stool <- wilcox.test(envbeforestool$prop, envafterstool$prop)
+wil.null.after.stool <- wilcox.test(envnull_stool$prop, envafterstool$prop)
+
+```
+
+```{r invasive msweep, echo = FALSE, fig.dim = c(10, 10), warning = FALSE, message = FALSE}
+#preparing st data and comparing sts causing invasive infection and stool colonisation to those in the environment - msweep
+envnull_msweep <- envboth_msweep %>%
+  filter(arm == "null")
+
+envbeforeinv_msweep <- envboth_msweep %>%
+  filter(arm == "test")
+
+envafterinv_msweep <- envboth_msweep %>%
+  filter(arm == "after")
+
+#median for the different timepoints 
+median_random_msweep <- median(envnull_msweep$prop)
+median_before_msweep <- median(envbeforeinv_msweep$prop)
+median_after_msweep <- median(envafterinv_msweep$prop)
+
+wil.null.before_msweep <- wilcox.test(envnull_msweep$prop, envbeforeinv_msweep$prop)
+wil.before.after_msweep <- wilcox.test(envbeforeinv_msweep$prop, envafterinv_msweep$prop)
+wil.null.after_msweep <- wilcox.test(envnull_msweep$prop, envafterinv_msweep$prop)
+
+envnull_stool_msweep <- envboth_stool_msweep %>%
+  filter(arm == "null")
+
+envbeforestool_msweep <- envboth_stool_msweep %>%
+  filter(arm == "test")
+
+envafterstool_msweep <- envboth_stool_msweep %>%
+  filter(arm == "after")
+
+#median for the different timepoints 
+median_randomstool_msweep <- median(envnull_stool_msweep$prop)
+median_beforestool_msweep <- median(envbeforestool_msweep$prop)
+median_afterstool_msweep <- median(envafterstool_msweep$prop)
+
+wil.null.before.stool_msweep <- wilcox.test(envnull_stool_msweep$prop, envbeforestool_msweep$prop)
+wil.before.after.stool_msweep <- wilcox.test(envbeforestool_msweep$prop, envafterstool_msweep$prop)
+wil.null.after.stool_msweep <- wilcox.test(envnull_stool_msweep$prop, envafterstool_msweep$prop)
+
+```
+
+
+```{r st frequency, echo = FALSE}
+
+stbysource <- stmeta_wgs %>% 
+  group_by(source) %>% 
+  count(ST) %>% 
+  count() %>%
+  rename("Sample source" = source, "Number of different STs" = n)
+
+nisolates <- stmeta_wgs %>% 
+  group_by(source) %>% 
+  count() %>%
+  rename("Sample source" = source, "Number of isolates" = n) %>%
+  left_join(stbysource, by = "Sample source") %>%
+  mutate("Number of samples per new ST" = `Number of isolates` / `Number of different STs`)
+
+ncotisolates <- as.numeric(nisolates[nisolates$`Sample source`=="Neonate's cot", 2])
+nbabyisolates <- as.numeric(nisolates[nisolates$`Sample source`=="Neonate's stool", 2])
+nenvisolates <- as.numeric(nisolates[nisolates$`Sample source`=="Ward surfaces", 2])
+nmathandisolates <- as.numeric(nisolates[nisolates$`Sample source`=="Mother's hands", 2])
+nmatstoolisolates <- as.numeric(nisolates[nisolates$`Sample source`=="Mother's stool", 2])
+nswadisolates <- as.numeric(nisolates[nisolates$`Sample source`=="Swaddling cloth", 2])
+ninvisolates <- as.numeric(nisolates[nisolates$`Sample source`=="Invasive", 2])
+
+```
+
+
+```{r source attribution, echo = FALSE, message = FALSE, warning = FALSE}
+#analysing the source attribution model data
+colnames(source_posterior) <- c("Neonate's cot", "Ward surfaces", "Mother's hands", "Swaddling cloth", "Mother's stool") 
+
+rel_contributions <- source_posterior %>%
+  mutate(total = `Neonate's cot` + `Ward surfaces` + `Mother's hands` + `Swaddling cloth` + `Mother's stool`) %>%
+  mutate(`Neonate's cot` = `Neonate's cot` / total, 
+         `Ward surfaces` = `Ward surfaces` / total,
+         `Mother's hands` = `Mother's hands` / total,
+         `Swaddling cloth` = `Swaddling cloth` / total, 
+         `Mother's stool` = `Mother's stool` / total) %>%
+  rownames_to_column(var = "sample") %>%
+  pivot_longer(cols = c("Neonate's cot", "Ward surfaces", "Mother's hands", "Swaddling cloth", "Mother's stool"), 
+               names_to = "source", 
+               values_to = "value") 
+
+env_contr <- cri_finder(rel_contributions %>% filter(source == "Ward surfaces") %>% pull(value))
+hand_contr <- cri_finder(rel_contributions %>% filter(source == "Mother's hands") %>% pull(value))
+stool_contr <- cri_finder(rel_contributions %>% filter(source == "Mother's stool") %>% pull(value))
+swad_contr <- cri_finder(rel_contributions %>% filter(source == "Swaddling cloth") %>% pull(value))
+cot_contr <- cri_finder(rel_contributions %>% filter(source == "Neonate's cot") %>% pull(value))
+
+source_attribution2 <- source_attribution %>%
+  filter(total_source != 0)
+
+
+colnames(q_posterior_raw) <- source_attribution2$ST
+
+q_posterior <- q_posterior_raw %>%
+  mutate(sample = c(rep(seq(1, 8000), 4)),
+         chain = c(rep(1, 8000), rep(2, 8000), rep(3, 8000), rep(4, 8000))) %>%
+  pivot_longer(cols = c(-sample, -chain),
+               names_to = "ST", 
+               values_to = "value") 
+
+q_median <- q_posterior %>%
+  group_by(ST) %>%
+  summarise(median = median(value))
+
+source_chain <- source_posterior %>%
+  mutate(sample = c(rep(seq(1, 8000), 4)),
+    chain = c(rep(1, 8000), rep(2, 8000), rep(3, 8000), rep(4, 8000))) %>%
+  pivot_longer(names_to = "source",
+               values_to = "value",
+               cols  = c("Neonate's cot",
+                             "Ward surfaces",
+                             "Mother's hands",
+                             "Swaddling cloth",
+                             "Mother's stool"))
+```
+
+```{r source attribution msweep, echo = FALSE, message = FALSE, warning = FALSE}
+#analysing the source attribution model data with msweep
+colnames(source_posterior_msweep) <- c("Neonate's cot", "Ward surfaces", "Mother's hands", "Swaddling cloth", "Mother's stool") 
+
+rel_contributions_msweep <- source_posterior_msweep %>%
+  mutate(total = `Neonate's cot` + `Ward surfaces` + `Mother's hands` + `Swaddling cloth` + `Mother's stool`) %>%
+  mutate(`Neonate's cot` = `Neonate's cot` / total, 
+         `Ward surfaces` = `Ward surfaces` / total,
+         `Mother's hands` = `Mother's hands` / total,
+         `Swaddling cloth` = `Swaddling cloth` / total, 
+         `Mother's stool` = `Mother's stool` / total) %>%
+  rownames_to_column(var = "sample") %>%
+  pivot_longer(cols = c("Neonate's cot", "Ward surfaces", "Mother's hands", "Swaddling cloth", "Mother's stool"), 
+               names_to = "source", 
+               values_to = "value") 
+
+env_contr_msweep <- cri_finder(rel_contributions_msweep %>% filter(source == "Ward surfaces") %>% pull(value))
+hand_contr_msweep <- cri_finder(rel_contributions_msweep %>% filter(source == "Mother's hands") %>% pull(value))
+stool_contr_msweep <- cri_finder(rel_contributions_msweep %>% filter(source == "Mother's stool") %>% pull(value))
+swad_contr_msweep <- cri_finder(rel_contributions_msweep %>% filter(source == "Swaddling cloth") %>% pull(value))
+cot_contr_msweep <- cri_finder(rel_contributions_msweep %>% filter(source == "Neonate's cot") %>% pull(value))
+
+source_attribution_msweep2 <- source_attribution_msweep %>%
+  filter(total_source != 0)
+
+
+colnames(q_posterior_raw_msweep) <- source_attribution_msweep2$ST
+
+q_posterior_msweep <- q_posterior_raw_msweep %>%
+  mutate(sample = c(rep(seq(1, 8000), 4)),
+         chain = c(rep(1, 8000), rep(2, 8000), rep(3, 8000), rep(4, 8000))) %>%
+  pivot_longer(cols = c(-sample, -chain),
+               names_to = "ST", 
+               values_to = "value") 
+
+q_median_msweep <- q_posterior_msweep %>%
+  group_by(ST) %>%
+  summarise(median = median(value))
+
+source_chain_msweep <- source_posterior_msweep %>%
+  mutate(sample = c(rep(seq(1, 8000), 4)),
+    chain = c(rep(1, 8000), rep(2, 8000), rep(3, 8000), rep(4, 8000))) %>%
+  pivot_longer(names_to = "source",
+               values_to = "value",
+               cols  = c("Neonate's cot",
+                             "Ward surfaces",
+                             "Mother's hands",
+                             "Swaddling cloth",
+                             "Mother's stool"))
+
+
+```
+
+
+
+
+
+```{r defining optimum snp distance, echo = FALSE, fig.dim = c(10, 10), warning = FALSE, message = FALSE}
+#defining an optimal snp distance to indicate transmission
+#looking only at neonates results
+refneo <- reftran %>%
+  filter(source.x == "Neonate's stool")
+
+#using reference data
+refsnpcutoff <- def_snpcutoff(reftran)  %>%
+  distinct(rel_id, .keep_all = TRUE)
+
+clonal_yes <- refsnpcutoff %>%
+  mutate(clonal = "yes") %>%
+  select(Lane.x, Lane.y, snpdist, clonal, rel_id)
+
+#max and median snp distances for clonal population
+maxrefsnp <- max(refsnpcutoff$snpdist)
+medianrefsnp <- median(refsnpcutoff$snpdist)
+
+refsnpnottrans <- reftran %>%
+  filter(source.x == "Neonate's stool",
+         source.y == "Neonate's stool",
+         ST.x == ST.y,
+         !between(sample_interval,-28, 28)) %>%
+  mutate(clonal = "no") %>%
+  select(Lane.x, Lane.y, snpdist, clonal, rel_id) %>%
+  distinct(rel_id, .keep_all = TRUE)
+
+#max and median snp distances for not clonal population
+maxsnpnottrans <- max(refsnpnottrans$snpdist)
+mediansnpnottrans <- median(refsnpnottrans$snpdist)
+
+both_clonal <- rbind(refsnpnottrans, clonal_yes)
+
+prop_clonal <- both_clonal %>% 
+  group_by(snpdist) %>% 
+  count(clonal) %>% 
+  mutate(sum = sum(n), prop = percent(n, sum))
+
+density_clonal <- density(clonal_yes$snpdist, from = 0, to = 15)
+density_notclonal <- density(refsnpnottrans$snpdist, from = 0, to = 15)
+density_odds <- density_clonal$y / (density_notclonal$y)
+density_prop <- density_clonal$y / (density_notclonal$y + density_clonal$y)
+
+density_combined <- data.frame(
+  clonal = density_clonal$y,
+  not_clonal = density_notclonal$y,
+  odds = density_odds,
+  prop = density_prop, 
+  snp = density_clonal$x
+)
+
+#defining the snp distance below which a sample is more likely to have come from a similar source
+snp_dist <- round(density_combined$snp[which(abs(density_combined$odds - 1) == min(abs(density_combined$odds - 1)))], 2)
+
+```
+
+
+
+```{r colonisation episodes, echo = FALSE}
+#defining colonisation episodes
+stref <- reftran %>%
+  filter(source.x == "Neonate's stool") %>%
+  select(Lane.x, dyad.x, ST.x, order) %>%
+  distinct(Lane.x, .keep_all = TRUE) %>%
+  arrange(order) %>%
+  distinct(dyad.x, ST.x, .keep_all = TRUE)
+
+ref_colevents <- length(stref$Lane.x)
+ref_neonates <- length(unique(stref$dyad.x))
+
+ref_eventsneonate <- stref %>%
+  count(dyad.x)
+
+threeevents <- sum(ref_eventsneonate$n == 3)
+twoevents <- sum(ref_eventsneonate$n == 2)
+
+```
+
+```{r transmission colonisation events, echo = FALSE}
+
+#first selecting samples that are at the start of a transmission event
+ref_transevents <- reftran %>%
+  filter(Lane.x %in% stref$Lane.x) %>%
+  filter(snpdist < snp_dist)
+  
+uniqueref <- unique(c(ref_transevents$Lane.x, ref_transevents$Lane.y))
+
+baby_closetime <- data.frame()
+for(i in uniqueref){
+  run_function <- trim_sources(ref_transevents, i)
+  baby_closetime <- rbind(baby_closetime, run_function)
+}
+baby_closetime <- baby_closetime %>%
+  distinct(rel_id, .keep_all = TRUE)
+
+refedges_small <- data.frame(node1 = baby_closetime$Lane.y,
+                        node2 = baby_closetime$Lane.x,
+                        dyad1 = baby_closetime$dyad.y,
+                        dyad2 = baby_closetime$dyad.x) %>%
+  mutate(dyad_clust = case_when(dyad1 == dyad2 ~ 3,
+                                TRUE ~ 30))
+
+#could change this to being st15stool
+refnodesy_small <- baby_closetime %>%
+  select(Lane.y, source.y, dyad.y, sample_interval) 
+
+refnodesx_small <- baby_closetime %>%
+  select(Lane.x, source.x, dyad.x, , sample_interval) %>%
+  rename(Lane.y = Lane.x, source.y = source.x, dyad.y = dyad.x)
+
+refnodes_small <- rbind(refnodesy_small, refnodesx_small) %>%
+  distinct(Lane.y, .keep_all = TRUE) %>%
+  mutate(colour = case_when(source.y == "Neonate's cot" ~ "steelblue1",
+                            source.y == "Neonate's stool" ~ "yellow2",
+                            source.y == "Ward surfaces" ~ "hotpink1",
+                            source.y == "Mother's hands" ~ "seagreen1",
+                            source.y == "Swaddling cloth" ~ "purple1",
+                            source.y == "Mother's stool" ~ "orange1")) %>%
+  mutate(frame.colour = case_when(dyad.y == "BDCKR" ~ "tomato3",
+                                  is.na(dyad.y) ~ "turquoise3",
+                                  dyad.y == "HZBCR" ~ "springgreen4",
+                                  dyad.y == "NZKSH" ~ "violetred3",
+                                  dyad.y == "ZRKND" ~ "salmon3",
+                                  dyad.y == "ZVRKS" ~ "lemonchiffon3",
+                                  dyad.y == "CNRVK" ~ "ivory3",
+                                  dyad.y == "SDHZN" ~ "hotpink3",
+                                  dyad.y == "VNKBR" ~ "mistyrose3",
+                                  dyad.y == "RHCBS" ~ "red3",
+                                  dyad.y == "VZBKN" ~ "sienna3",
+                                  dyad.y == "CRNDB" ~ "mediumpurple3",
+                                  dyad.y == "NZHVB" ~ "olivedrab3",
+                                  dyad.y == "DHCKN" ~ "peachpuff3",
+                                  dyad.y == "NVSBH" ~ "lightcyan3",
+                                  dyad.y == "BZCHV" ~ "orchid3",
+                                  dyad.y == "NKZCV" ~ "yellow3",
+                                  dyad.y == "BKCSV" ~ "wheat3",
+                                  dyad.y == "NKRSD" ~ "thistle3",
+                                  dyad.y == "DSKZH" ~ "tan3",
+                                  dyad.y == "ZSHVR" ~ "slateblue3",
+                                  dyad.y == "VCRHK" ~ "pink3",
+                                  dyad.y == "BDRSC" ~ "palegreen3",
+                                  dyad.y == "HRVKZ" ~ "lightcyan1",
+                                  dyad.y == "ZNBHC" ~ "khaki1",
+                                  dyad.y == "BVZKS" ~ "sandybrown"
+                                  ))
+                                  
+                              
+                              
+
+refnetwork <- graph_from_data_frame(d = refedges_small, 
+                                     vertices = refnodes_small, 
+                                     directed = TRUE)
+
+V(refnetwork)$color <- V(refnetwork)$colour
+V(refnetwork)$frame.color <- V(refnetwork)$frame.colour 
+
+#number of transmission events
+ntransevents <- baby_closetime %>%
+  count(Lane.x)
+
+#number of sources
+nsources <- baby_closetime %>%
+  count(Lane.y)
+
+#different transmission event sources
+transsources <- baby_closetime %>%
+  mutate(sourceprecise = case_when(source.y == "Ward surfaces" ~ "Ward surfaces",
+                                   source.y == "Neonate's stool" &
+                                     dyad.x != dyad.y ~ "Other neonates",
+                                   source.y == "Mother's stool" ~ "Mother's stool",
+                                   source.y == "Neonate's cot" ~ "Cots",
+                                   source.y == "Mother's hands"~ "Mother's hands",
+                                   source.y == "Swaddling cloth" ~ "Swaddling cloth",
+                                   TRUE ~ source.y)) %>%
+  count(sourceprecise) %>%
+  arrange(desc(n))
+
+envsources <- baby_closetime %>%
+  filter(source.y == "Ward surfaces") %>%
+  count(envtype.y) %>%
+  arrange(desc(n))
+
+```
+
+
+```{r ergm, echo = FALSE, warning = FALSE, message = FALSE}
+#creating a network model
+
+#this creates the baseline network, that is a network of all neonates connected
+neo_all_network <- neo_all_network_seven
+
+neo_connections <- neo_all_network %>%
+  select(from, to)
+
+neo_snp <- neo_all_network %>%
+  select(from, to, snplink, ST.x)
+
+neo_cot <- neo_all_network %>%
+  select(from, to, cot)
+
+neo_bothcot <- neo_cot %>%
+  filter(cot == 1) %>%
+  rename(typeoflink = cot) %>%
+  mutate(typeoflink = "cot")
+
+neo_bothsnp <- neo_snp %>%
+  filter(snplink == 1) %>%
+  rename(typeoflink = ST.x) %>%
+  select(-snplink)
+
+neo_both <- neo_bothsnp %>%
+  full_join(neo_bothcot, by = c("from", "to")) %>%
+  mutate(typeoflink.y = case_when(typeoflink.y == "cot" ~ 8,
+                                  TRUE ~ 1),
+         typeoflink.x = case_when(is.na(typeoflink.x) ~ "snow2",
+                                  typeoflink.x == "ST15" ~ "red",
+                                  typeoflink.x == "ST2793" ~ "blue",
+                                  typeoflink.x == "ST340 and ST15" ~ "gold1",
+                                  typeoflink.x == "ST307" ~ "pink",
+                                  typeoflink.x == "ST35" ~ "green")) %>%
+  rename(ST = typeoflink.x, cot = typeoflink.y) %>%
+  arrange(desc(ST))
+
+#create network
+neo_network <- as.network(neo_connections)
+
+#prepping neonatal covariates
+neo_netcov <- neo_covariates_network %>%
+  filter(neoid %in% get.vertex.attribute(neo_network, "vertex.names")) %>%
+  select(neoid, neoabx, gestage, wt, o2)
+
+#list of missing neonatal values
+list_missing_from_covariates <- get.vertex.attribute(neo_network, "vertex.names")[!get.vertex.attribute(neo_network, "vertex.names") %in% neo_netcov$neoid]
+
+#list of 
+all_neo_netcov <- data.frame(neoid = get.vertex.attribute(neo_network, "vertex.names")) %>%
+  left_join(neo_netcov, by = "neoid")
+
+all_neo_netcov_o2 <- all_neo_netcov %>%
+  select(o2) %>%
+  replace_na(list(o2 = 0))
+
+all_neo_netcov_neoabx <- all_neo_netcov %>%
+  select(neoabx) %>%
+  replace_na(list(neoabx = 0))
+
+all_neo_netcov_wt <- all_neo_netcov %>%
+  select(wt) %>%
+  replace_na(list(wt = 0))
+
+#setting attributes
+snp_network <- as.network(neo_snp)
+not_snp <- which(get.edge.attribute(snp_network, "snplink") == FALSE)
+delete.edges(snp_network, not_snp)
+set.vertex.attribute(snp_network, "o2", all_neo_netcov_o2$o2)
+set.vertex.attribute(snp_network, "wt", all_neo_netcov_wt$wt)
+set.vertex.attribute(snp_network, "neoabx", all_neo_netcov_neoabx$neoabx)
+cot_network <- as.network(neo_cot)
+not_cot <- which(get.edge.attribute(cot_network, "cot") == FALSE)
+delete.edges(cot_network, not_cot)
+
+#write.csv(timediff, here("data_markdown", "timediff_cotnetwork.csv"))
+
+
+network.model <- ergm(snp_network ~ edges + edgecov(cot_network) + edgecov(timediff))
+network.model.edges <- ergm(snp_network ~ edges)
+network.model.time <- ergm(snp_network ~ edges + edgecov(timediff))
+network.model.cot <- ergm(snp_network ~ edges + edgecov(cot_network))
+network.model.nodecov <- ergm(snp_network ~ edges + edgecov(cot_network) + nodecov('o2') + nodecov('neoabx'))
+network.model.o2 <- ergm(snp_network ~ edges + edgecov(cot_network) + nodecov('o2'))
+network.model.neoabx <- ergm(snp_network ~ edges + edgecov(cot_network) + nodecov('neoabx'))
+network.model.wt <- ergm(snp_network ~ edges + edgecov(cot_network) + nodecov('wt'))
+
+
+gof_stats <- gof(network.model,  GOF = ~idegree + odegree + distance + model) 
+gof_stats2 <- gof(network.model.edges,  GOF = ~idegree + odegree + distance + model)
+gof_stats.time <- gof(network.model.time,  GOF = ~idegree + odegree + distance + model)
+gof_stats.cot <- gof(network.model.cot,  GOF = ~idegree + odegree + distance + model)
+gof_stats.nodecov <- gof(network.model.nodecov, GOF = ~idegree + odegree + distance + model)
+gof_stats.neoabx <- gof(network.model.neoabx, GOF = ~idegree + odegree + distance + model)
+
+pval_formatted <- c(as.character(format.pval(summary(network.model.neoabx)$coefficients[,5], digits = 2)))
+
+network_coef <- data.frame(Factor = c("Edges", "Cots", "Neonatal antibiotics"), 
+                            "Log-odds"= round(coef((network.model.neoabx)), digits = 2),
+                            Probability = c(signif(expit(coef((network.model.neoabx)))[1], digits = 2),
+                                            signif(expit(coef((network.model.neoabx))[1] + coef((network.model.neoabx)))[2], digits = 2),
+                                            signif(expit(coef((network.model.neoabx))[1] + coef((network.model.neoabx)))[3], digits = 2)),
+                            "p value" = pval_formatted)
+
+```
+
+```{r cot network all connections, echo = FALSE, message = FALSE}
+#fit metrics
+aic_edges <- summary(network.model.edges)[16][[1]][1]
+aic_cot <- summary(network.model.cot)[16][[1]][1]
+aic_time <- summary(network.model.time)[16][[1]][1]
+aic_normal <- summary(network.model)[16][[1]][1]
+aic_o2 <- summary(network.model.o2)[16][[1]][1]
+aic_neoabx <- summary(network.model.neoabx)[16][[1]][1]
+aic_wt <- summary(network.model.wt)[16][[1]][1]
+aic_nodecov <- summary(network.model.nodecov)[16][[1]][1]
+
+bic_edges <- summary(network.model.edges)[17][[1]][1]
+bic_cot <- summary(network.model.cot)[17][[1]][1]
+bic_time <- summary(network.model.time)[17][[1]][1]
+bic_normal <- summary(network.model)[17][[1]][1]
+bic_o2 <- summary(network.model.o2)[17][[1]][1]
+bic_neoabx <- summary(network.model.neoabx)[17][[1]][1]
+bic_wt <- summary(network.model.wt)[17][[1]][1]
+bic_nodecov <- summary(network.model.nodecov)[17][[1]][1]
+
+
+fit_metrics <- data.frame("Model name" = c("A",
+                                           "B",
+                                           "C",
+                                           "D",
+                                           "E",
+                                           "F",
+                                           "G",
+                                           "H"),
+                          "Model structure" = c("Edges", 
+                                                "Edges + cots",
+                                                "Edges + time",
+                                                "Edges + cots + time",
+                                                "Edges + cots + oxygen therapy",
+                                                "Edges + cots + antibiotic therapy",
+                                                "Edges + cots + birthweight",
+                                                "Edges + cots + oxygen therapy + antibiotic therapy"),
+                          AIC = round(c(aic_edges,
+                                  aic_cot,
+                                  aic_time,
+                                  aic_normal,
+                                  aic_o2,
+                                  aic_neoabx,
+                                  aic_wt,
+                                  aic_nodecov)),
+                          BIC = round(c(bic_edges,
+                                  bic_cot,
+                                  bic_time,
+                                  bic_normal,
+                                  bic_o2,
+                                  bic_neoabx,
+                                  bic_wt,
+                                  bic_nodecov))
+)
+
+
+```
+
+
+```{r transmission colonisation events mgems, echo = FALSE}
+#colonisation events - mgems
+mgemsref <- reftran_mgems %>%
+  filter(source.x == "Neonate's stool") %>%
+  select(IDx, dyad.x, order) %>%
+  distinct(IDx, .keep_all = TRUE) %>%
+  arrange(order) %>%
+  distinct(dyad.x, .keep_all = TRUE)
+
+
+#first selecting samples that are at the start of a transmission event
+ref_transevents_mgems <- reftran_mgems %>%
+  filter(IDx %in% mgemsref$IDx) %>%
+  filter(snpdist < snp_dist)
+  
+uniqueref_mgems <- unique(c(ref_transevents_mgems$IDx, ref_transevents_mgems$IDy))
+
+baby_closetime_mgems <- data.frame()
+for(i in uniqueref_mgems){
+  run_function_mgems <- trim_sources_mgems(ref_transevents_mgems, i)
+  baby_closetime_mgems <- rbind(baby_closetime_mgems, run_function_mgems)
+}
+baby_closetime_mgems <- baby_closetime_mgems %>%
+  distinct(rel_id, .keep_all = TRUE)
+
+env_mgems <- env %>%
+  rename(cresid.y = cresid.x)
+
+envsources_mgems <- baby_closetime_mgems %>%
+  filter(source.y == "Ward surfaces") %>%
+  left_join(env_mgems, by = "cresid.y") %>%
+  count(envtype) %>%
+  arrange(desc(n))
+
+transsources_mgems <- baby_closetime_mgems %>%
+  mutate(sourceprecise = case_when(source.y == "Ward surfaces" ~ "Ward surfaces",
+                                   source.y == "Neonate's stool" &
+                                     dyad.x != dyad.y ~ "Other neonate",
+                                   source.y == "Mother's stool" ~ "Mothers' stool",
+                                   source.y == "Neonate's cot" ~ "Cot",
+                                   source.y == "Mother's hands"~ "Mother's hands",
+                                   source.y == "Swaddling cloth" ~ "Swaddling cloth",
+                                   TRUE ~ source.y)) %>%
+  count(sourceprecise) %>%
+  arrange(desc(n)) %>%
+  rename(mGEMS = n)
+
+```
+
+
+```{r ergm mgems, echo = FALSE, fig.dim = c(10, 10), warning = FALSE, message = FALSE}
+#network mgems
+neo_mgems <- neo_all_network_mgems_seven %>%
+  select(from, to, mgemslink, ST.x)
+
+mgems_network <- as.network(neo_mgems)
+not_mgems <- which(get.edge.attribute(mgems_network, "mgemslink") == FALSE)
+delete.edges(mgems_network, not_mgems)
+set.vertex.attribute(mgems_network, "o2", all_neo_netcov_o2$o2)
+set.vertex.attribute(mgems_network, "wt", all_neo_netcov_wt$wt)
+set.vertex.attribute(mgems_network, "neoabx", all_neo_netcov_neoabx$neoabx)
+
+network.model.mgems <- ergm(mgems_network ~ edges + edgecov(cot_network) + nodecov('neoabx'))
+
+gof_stats.mgems <- gof(network.model.mgems, GOF = ~idegree + odegree + distance + model)
+
+```
+
+# Figures & tables
+
+## Main Figures
+
+
+```{r supplemental table characteristics, echo = FALSE, warning = FALSE, message = FALSE, tab.cap = "Table 1"}
+
+#this is the flextable version of the table
+characteristics <- flextable(char) %>%
+  autofit
+characteristics <- add_footer_row(characteristics,
+                                   values = as_paragraph("LBW = less than 2,500g, VLBW = less than 1,500g, ELBW = less than 1,000g.\n\nSome of the maternal data is counted twice as for multiple births more than one neonate was exposed.\n\nNot all neonates that were born from each pregnancy were recruited into the study as not all neonates were admitted to the neonatal unit"),
+                                   colwidths = c(3),
+                                   top= FALSE)
+characteristics
+
+
+```
+
+
+
+
+```{r coefficients, echo = FALSE, message = FALSE, warning = FALSE}
+#analysing state transition model
+beta_neo_long <- beta_neo %>%
+    pivot_longer(cols = c("neoabx",
+                        "gestage",
+                        "outborn",
+                        "sex",
+                        "dlivmod",
+                        "wt",
+                        "o2",
+                        "notbreast"),
+               names_to = "variable",
+               values_to = "value")
+coefs_long <- rbind(alpha_0, alpha_mum, phi) %>%
+  mutate(variable = as.factor(variable))
+levels(coefs_long$variable) <- c("alpha[0]", "alpha[mum]", "Phi")
+beta_mother_long <- beta_mother %>%
+  pivot_longer(cols = c("mathiv",
+                        "matabx",
+                        "anc_hosp"),
+               names_to = "variable",
+               values_to = "value")
+
+beta_neo_exp <- data.frame(sapply(beta_neo %>% select(-chain, -sample), exp)) %>%
+  select(-X) %>%
+  mutate(sample = c(rep(seq(1, 20000), 3))) %>%
+  filter(sample > 2000)
+
+beta_mother_exp <- data.frame(sapply(beta_mother %>% select(-chain, -sample), exp)) %>%
+  select(-X) %>%
+  mutate(sample = c(rep(seq(1, 20000), 3))) %>%
+  filter(sample > 2000)
+
+cri_neoabx <- cri_finder(beta_neo_exp$neoabx)
+cri_o2 <- cri_finder(beta_neo_exp$o2)
+cri_notbreast <- cri_finder(beta_neo_exp$notbreast)
+cri_gestage <- cri_finder(beta_neo_exp$gestage)
+cri_outborn <- cri_finder(beta_neo_exp$outborn)
+cri_sex <- cri_finder(beta_neo_exp$sex)
+cri_dlivmod <- cri_finder(beta_neo_exp$dlivmod)
+cri_wt <- cri_finder(beta_neo_exp$wt)
+cri_mathiv <- cri_finder(beta_mother_exp$mathiv)
+cri_matabx <- cri_finder(beta_mother_exp$matabx)
+cri_anc_hosp <- cri_finder(beta_mother_exp$anc_hosp)
+
+density_neoabx <- dataprep_density(beta_neo_exp, "neoabx") 
+density_o2 <- dataprep_density(beta_neo_exp, "o2")
+density_notbreast <- dataprep_density(beta_neo_exp, "notbreast")
+density_gestage <- dataprep_density(beta_neo_exp, "gestage")
+density_outborn <- dataprep_density(beta_neo_exp, "outborn")
+density_sex <- dataprep_density(beta_neo_exp, "sex")
+density_dlivmod <- dataprep_density(beta_neo_exp, "dlivmod")
+density_wt <- dataprep_density(beta_neo_exp, "wt")
+density_mathiv <- dataprep_density(beta_mother_exp, "mathiv")
+density_matabx <- dataprep_density(beta_mother_exp, "matabx")
+density_anc_hosp <- dataprep_density(beta_mother_exp, "anc_hosp")
+
+cri_all <- data.frame(rbind(cri_neoabx, 
+                 cri_o2,
+                 cri_notbreast,
+                 cri_outborn,
+                 cri_gestage, 
+                 cri_sex,
+                 cri_dlivmod,
+                 cri_wt,
+                 cri_mathiv,
+                 cri_matabx,
+                 cri_anc_hosp)) %>%
+  rename("lower_cri" = X1,
+         Median = X2,
+         "upper_cri" = X3) %>%
+  rownames_to_column(var = "Variable")
+
+density_abx <- rbind(density_neoabx) %>%
+  mutate(class = "abx")
+density_items <- rbind(density_o2, density_notbreast) %>%
+  mutate(class = "items")
+density_factors <- rbind(density_outborn, density_gestage, density_sex, density_dlivmod, density_wt) %>%
+  mutate(class = "neo_factors")
+density_mother <- rbind(density_mathiv, density_matabx, density_anc_hosp) %>%
+  mutate(class = "mat_factors")
+
+density_all <- rbind(density_abx, density_items, density_factors, density_mother)
+
+```
+
+
+```{r violin plots, echo = FALSE, warning = FALSE}
+#preparing for violin plots
+beta_neo_violin <- beta_neo_exp %>%
+  rownames_to_column(var = "run") %>%
+  pivot_longer(cols = c("neoabx",
+                        "gestage",
+                        "outborn",
+                        "sex",
+                        "dlivmod",
+                        "wt",
+                        "o2",
+                        "notbreast"),
+               names_to = "variable")
+
+beta_mother_violin <- beta_mother_exp %>%
+  rownames_to_column(var = "run") %>%
+  pivot_longer(cols = c("matabx",
+                        "mathiv",
+                        "anc_hosp"),
+               names_to = "variable")
+
+beta_both_violin <- rbind(beta_neo_violin, beta_mother_violin) %>%
+  mutate(class = case_when(variable == "anc_hosp" |
+                             variable == "matabx" |
+                             variable == "mathiv" ~ "Maternal factors",
+                           variable == "dlivmod" |
+                             variable == "outborn" ~ "Intra-partum factors",
+                           variable == "gestage" |
+                             variable == "sex" |
+                             variable == "neoabx" |
+                             variable == "wt" ~ "Neonatal health factors",
+                           variable == "notbreast" |
+                             variable == "o2" ~ "Factors related to environment/equipment")) %>%
+  mutate(variable = fct_relevel(variable, "o2", "notbreast", 
+                                "sex", "neoabx", "gestage", "wt","dlivmod", "outborn", 
+                                "anc_hosp", "mathiv", "matabx"))
+
+cri_violin <- cri_all %>%
+  mutate(Variable = gsub("cri_", "", Variable))
+
+```
+
+```{r denominator for compartments, echo = FALSE, fig.cap = "", fig.dim = c(10, 10), warning = FALSE, message = FALSE}
+
+#may delete these if they are not useful
+
+refsnp <- reftran %>%
+  filter(snpdist < snp_dist) %>%
+  distinct(rel_id, .keep_all = TRUE)
+
+sourcex <- data.frame(source.x = c("Neonate's cot", 
+                                 "Neonate's stool", 
+                                 "Ward surfaces",
+                                 "Mother's stool",
+                                 "Mother's hands",
+                                 "Swaddling cloth"),
+                      nisolates = c(ncotisolates,
+                                    nbabyisolates,
+                                    nenvisolates,
+                                    nmatstoolisolates,
+                                    nmathandisolates,
+                                    nswadisolates))
+
+sourcey <- data.frame(source.y = c("Neonate's cot", 
+                                 "Neonate's stool", 
+                                 "Ward surfaces",
+                                 "Mother's stool",
+                                 "Mother's hands",
+                                 "Swaddling cloth"),
+                      nisolates = c(ncotisolates,
+                                    nbabyisolates,
+                                    nenvisolates,
+                                    nmatstoolisolates,
+                                    nmathandisolates,
+                                    nswadisolates))
+
+#nuanced denominator
+refncomp <-  reftran %>% 
+    distinct(rel_id, .keep_all = TRUE) %>%
+    group_by(source2sink) %>% 
+    summarise(source.x = source.x, 
+              source.y = source.y) %>%
+    distinct(source2sink, .keep_all = TRUE) %>%
+  left_join(sourcex, by = "source.x") %>%
+  left_join(sourcey, by = "source.y") %>%
+  mutate(nconnections = case_when(source.x == source.y ~ as.numeric(sum(seq(nisolates.y:1))),
+                                  TRUE ~ nisolates.x * nisolates.y)) %>%
+  select(source2sink, nconnections)
+
+refnlinks <- refsnp %>%
+  distinct(rel_id, .keep_all = TRUE) %>%
+  group_by(source2sink) %>%
+  count() %>%
+  left_join(refncomp, by = "source2sink") %>%
+  rename(ntrans = n, nsamples = nconnections) %>%
+  mutate(prop = ntrans / nsamples) %>%
+  mutate(source2sink = fct_reorder(source2sink, prop)) %>%
+  ungroup() %>%
+  mutate(uci = prop + (1.96 * sqrt(prop * (1-prop)/nsamples)),
+         lci = prop - (1.96 * sqrt(prop * (1-prop)/nsamples)),
+         lci = case_when(lci < 0 ~ 0,
+                         TRUE ~ lci)) %>%
+  arrange(desc(prop)) %>%
+  mutate(compartments = source2sink) %>%
+  separate_wider_delim(source2sink, delim = "-",
+                       names = c("compartment1", "compartment2"))
+
+refnlinks_network <- refnlinks %>%
+  select(compartment1, compartment2, prop) %>%
+  mutate(
+    #prop = round(prop, 2),
+         prop2 = prop * 1000)
+
+```
+
+```{r new figure 1, fig.cap = "Figure 1.", echo = FALSE, warning = FALSE, fig.dim = c(14, 14)}
+
+kleb_cols <- c(kleb = "royalblue2", esbl = "gold1")
+
+all_micro_plot <- ggplot(data = lab_klebandesbl, aes(x = Source, y = prop, fill = organism)) + 
+  geom_col(position = position_dodge(), colour = "black", width = 0.7) +
+  scale_fill_manual(values = kleb_cols,
+                    labels =  c("Any ESBL",
+                                            "Klebsiella pneumoniae"),
+                       breaks = c("esbl",
+                                 "kleb")) +
+  theme(text = element_text(size = 20),
+        axis.text.x = element_text(angle = 45, hjust = 1)
+        ) +
+  geom_errorbar(
+    aes(ymin = prop - ci, 
+        ymax = prop + ci), 
+    position = position_dodge(.7),
+    width = 0.5,
+    color = "black") +
+  labs(x = "Sample type",
+       y = "Percent positive",
+       fill = "ESBL organisms") + 
+  scale_x_discrete(labels = c("Neonatal stool",
+                              "Maternal stool",
+                              "Maternal hand",
+                              "Swaddling cloth",
+                              "Cot",
+                              "Staff hand",
+                              "Ward surfaces"))
+
+#adding in the bc data
+kleb_bc_details_time <- data.frame(Neo = c("SRBDC"),
+                                   bc_id = c("CAAYEV"),
+                                   interval = -0.3)
+
+lolly_kleb_plot <- ggplot(lolly_kleb_1) + 
+  geom_segment(data = lolly_kleb_2 %>% mutate(Neo = fct_reorder(Neo, first_pos)), 
+               aes(x = start, xend = end, y = Neo, yend = Neo), color="black") + 
+  geom_point(data = lolly_kleb_1, 
+             aes(x = interval, y = Neo, fill = as.character(Klebsiella.pneumoniae)), 
+             colour = "black", shape = 21, size = 2) +
+  geom_point(data = kleb_bc_details_time, aes(x = interval, y = Neo), 
+             shape = 4, size = 5, width = 5) + 
+  xlab("Time (days)") +
+  ylab("Individual swabbing results") +
+  labs(fill = "") +
+  scale_fill_manual(labels = c("Not colonised", 
+                                "Colonised"), 
+                    values = c("royalblue3", "firebrick1")) +
+  theme(axis.text.y = element_blank(),
+        axis.ticks.y=element_blank(),
+        text = element_text(size = 20)) +
+  scale_x_continuous(expand = c(0.02, 0.02)) +
+  xlim(c(-1, 8.5))
+
+violin_plot <- ggplot(beta_both_violin) +
+  geom_violin(aes(x = variable, y = value, fill = class),
+              scale = "width", colour = NA) +
+  geom_segment(data = cri_violin,
+               aes(x = Variable, y = lower_cri, yend = upper_cri),
+               color = "black", lwd = 3, alpha = 0.5) +
+  geom_point(data = cri_violin,
+             aes(x = Variable, y = Median), 
+             size = 4, shape = 15) +
+  ylim(0, 6) +
+  geom_hline(yintercept = 1, lwd = 1) +
+  labs(x = "Covariate",
+       y = "Odds ratio for acquisition",
+       fill = "Type of variable") +
+  scale_x_discrete(breaks=c("o2", "notbreast",
+                                "neoabx",
+                                "sex", "dlivmod", "gestage", "outborn", "wt",
+                                "anc_hosp", "mathiv", "matabx"),
+        labels=c("Oxygen\ntherapy", "Fed by\nadjunct", 
+                 "Neonatal\nantibiotics",
+                 "Female\nsex", "Caesarean\nsection", "Gestational\nage", "Born at\na different centre",
+                 "Birthweight", "ANC in\nhospital", "Maternal\nHIV", "Maternal\nantibiotics")) +
+  theme(text = element_text(size = 20)) +
+  coord_flip(clip = "off")
+
+two_micro <- ggarrange(all_micro_plot, lolly_kleb_plot, 
+                       align = "h", ncol = 2, labels = c("A", "B"))
+                       
+three_micro <- ggarrange(two_micro, violin_plot, 
+                         nrow = 2, ncol = 1, labels = c("", "C"))
+
+three_micro
+
+```
+
+
+```{r figure 2, echo = FALSE, fig.dim = c(10, 10), fig.cap = "Figure 2.", warning = FALSE, message = FALSE}
+
+st_invasivemonth <- ggplot(inv_stmeta) +
+  geom_histogram(aes(x = sample_date, fill = ST), bins = 60, colour = "black") +
+  geom_line(data = st_bymonth_prop, 
+            aes(x = month, y = prop_numsamples * 20, colour = ST), lwd = 1, alpha = 0.5) +
+  facet_wrap(vars(ST), ncol = 1)   +
+  scale_y_continuous(
+    limits = c(0, 4), 
+    breaks = c(0, 4),
+    # Features of the first axis
+    name = "Invasive cases",
+    # Add a second axis and specify its features
+    sec.axis = sec_axis( trans=~./20, 
+                         name="Proportion of isolates per month of ST",
+                         breaks = c(0, 0.1),
+                         labels = c(0, 0.1))
+  ) +
+  theme(axis.text.y = element_text(size = 10),
+        strip.background = element_blank(),
+        strip.text.x = element_blank(),
+        text = element_text(size = 18)) +
+  xlab("Date")
+
+label_stinv <- c("null" = "Random",
+                 "test" = "Before",
+                 "after" = "After")
+cols = c("Median" = "black")
+
+envinvandstool <- rbind(envboth, envboth_stool)
+
+envinvandstoolgraph <- ggplot(envinvandstool) +
+  geom_histogram(aes(x = prop, fill = arm), alpha = 0.5, bins = 60) +
+  geom_vline(aes(xintercept = median), lwd = 1) +
+  facet_grid(rows = vars(arm),
+             cols = vars(type),
+             labeller = labeller(arm = label_stinv)) +
+  #facet_wrap(vars(arm), ncol = 1,
+  #           labeller = labeller(arm = label_stinv)) +
+  labs(x = "Proportion of isolated K. pneumoniae\nthat are invasive or stool ST",
+       y = "Density",
+       fill = "Timepoint in relation\nto invasive/stool isolate") +
+  scale_fill_discrete(labels = c("Random",
+                                 "Before",
+                                 "After")) +
+  scale_colour_manual(name="here",values=cols) +
+  theme(text = element_text(size = 18))
+
+ggarrange(st_invasivemonth, envinvandstoolgraph, nrow = 2, labels = c("A", "B"))
+
+
+```
+
+
+
+
+
+
+
+
+
+```{r figure 3, echo = FALSE, message = FALSE, fig.dim = c(14, 14), fig.cap = "Figure 3."}
+
+CE_cols <- c("Cots" = "steelblue1",
+             "Ward surfaces" = "hotpink1",
+             "Mother's stool" = "orange1",
+             "Mother's hands" = "seagreen1",
+             "Other neonates" = "yellow2",
+             "Swaddling cloth" = "purple1")
+
+vertex_cols <- c(
+                  "Swaddling cloth" = "purple1",
+                  "Neonate's stool" = "yellow2",
+                  "Neonate's cot" = "steelblue1",
+                  "Ward surfaces" = "hotpink1",
+                  "Mother's hands" = "seagreen1",
+                  "Mother's stool" = "orange1")
+
+source_cols <- c("Neonate's cot" = "steelblue1",
+             "Ward surfaces" = "hotpink1",
+             "Mother's stool" = "orange1",
+             "Mother's hands" = "seagreen1",
+             "Neonate's stool" = "yellow2",
+             "Swaddling cloth" = "purple1")
+
+contributions_graph <- ggplot(rel_contributions) +
+  geom_violin(aes(x = source, y = value, fill = source), scale = "width", alpha = 1) +
+  scale_fill_manual(values = source_cols) +
+  labs(x = "Source",
+       y = "Relative contribution") +
+  theme(legend.position = "none",
+        text = element_text(size = 20)) +
+  coord_flip()
+
+density_graph <- ggplot(refnlinks) +
+  geom_col(aes(x = fct_reorder(compartments, prop), y = prop), fill = "#BBBBBB", colour = "black") +
+  geom_point(aes(x = fct_reorder(compartments, prop), y = -0.003, colour = compartment1), size = 4) +
+    geom_point(aes(x = fct_reorder(compartments, prop), y = -0.001, colour = compartment2), size = 4) +
+  scale_colour_manual(values = source_cols) +
+  geom_errorbar(aes(x = compartments, ymin = lci, ymax = uci), width = 0.4) +
+  labs(y = "Circulation between compartments",
+       x = "Source pairs") +
+  theme(text = element_text(size = 20),
+        legend.position = "none") +
+  coord_flip()
+
+density_network <- as.network(refnlinks_network, loops = TRUE, directed = FALSE)
+
+density_network_generator <- function(){
+  #vertex_cols <- source_cols[network.vertex.names(density_network)]
+  plot(density_network, edge.lwd = "prop2", 
+                              label = network.vertex.names(density_network), 
+                              vertex.cex = 3,
+                              label.cex = 1.5,
+                              label.pos = 1,
+                              edge.col = "#BBBBBB",
+                              vertex.col = vertex_cols)
+}
+
+
+density_panel <- ggarrange(contributions_graph, density_network_generator,
+          nrow = 1, ncol = 2, labels = c("A", "B")
+          )
+
+density_panel2 <- ggarrange(density_panel,
+                            density_graph, 
+                            nrow = 2, ncol = 1,
+                            labels = c("", "C"))
+
+density_panel2
+
+```
+
+```{r figure 4, echo = FALSE, warning = FALSE, fig.cap = "Figure 4.", fig.dim = c(14, 14)}
+
+#adding it to igraph
+add.vertex.shape("fcircle", clip=igraph.shape.noclip,
+ plot=mycircle, parameters=list(vertex.frame.color=1,
+                                  vertex.frame.width=1))
+
+stats2 <- transsources %>%
+  mutate(type = "TE")
+
+trans_numbers <- ggplot(stats2) +
+  geom_col(aes(x = type, y = n, fill = sourceprecise), position = "fill", colour = "black") +
+  labs(x = "",
+       y = "Proportion of total CEs") +
+  theme(axis.text.y = element_blank(),
+        text = element_text(size=24)) +
+  scale_fill_manual(values = CE_cols,
+                    name = "Putative source\nof transmission") +
+  coord_flip()
+
+par(mfrow = c(3, 1))
+
+#plot_network
+both_network <- as.network(neo_both)
+
+entire_network_function <- function(){
+  #network plot
+  entire_network <- plot(refnetwork,
+     vertex.shape = "fcircle", 
+     vertex.frame.width = 3,
+     vertex.size = 6, 
+     vertex.label = "", 
+     edge.arrow.size = 0.7, 
+     edge.arrow.width = 1,
+     edge.width = 2) 
+}
+
+cot_network_function <- function() {
+  cot_network_graph <- plot(both_network, edge.lwd = "cot", edge.col = "ST", mode = "circle")
+
+  cot_network_graph <- legend("topright",
+       title = "ST",
+       legend=c("ST15", "ST2793", "ST340 & ST15", "ST35", "ST307", "No transmission link"),
+       col=c("red", "blue", "gold1", "green", "pink", "snow2"),
+       cex = 1.2,
+       lty = 1,
+       lwd = 3)
+}
+
+networks <- ggarrange(entire_network_function, cot_network_function,
+                      nrow = 1, ncol = 2, labels = c("A", "B"))
+
+
+ ggarrange(networks, trans_numbers,
+           nrow = 2, ncol = 1, labels = c("", "C"),
+           heights = c(3, 1))
+
+```
+
+
+
+## Supplementary Figures
+
+```{r map, echo = FALSE, message = FALSE, warning = FALSE, fig.cap = "Supplementary Figure 1.", fig.dim = c(10, 7) }
+
+#to scale dimensions ----
+#outer dimensions of wall
+out1 <- matrix(c(0, 1380, 1380, 0, 0,
+                0, 0, 1900, 1900, 0), nrow = 5, ncol = 2)
+out1 <- st_polygon(list(st_linestring(out1))) #the outer wall
+vest1 <- matrix(c(420, 420, 730, 730, 420,
+                 0, 830, 830, 0, 0), nrow = 5, ncol = 2)
+vest1 <- st_polygon(list(st_linestring(vest1))) #the vestibule
+hrs1 <- matrix(c(0, 0, 420, 420, 0, 
+                 0, 730, 730, 0, 0), nrow = 5, ncol = 2)
+hrs1 <- st_polygon(list(st_linestring(hrs1))) #low risk surgical
+lrs1 <- matrix(c(730, 730, 1380, 1380, 730,
+                0, 730, 730, 0, 0), nrow = 5, ncol = 2)
+lrs1 <- st_polygon(list(st_linestring(lrs1))) #high risk surgical
+lrm1 <- matrix(c(420, 420, 1070, 1070, 420, 
+                1220, 1900, 1900, 1220, 1220), nrow = 5, ncol = 2)
+lrm1 <- st_polygon(list(st_linestring(lrm1))) #low risk medical
+hrm1 <- matrix(c(0, 0, 420, 420, 0, 
+                730, 1900, 1900, 730, 730), nrow = 5, ncol = 2)
+hrm1 <- st_polygon(list(st_linestring(hrm1))) # high risk medical
+ir11 <- matrix(c(1070, 1070, 1380, 1380, 1070, 
+                1560, 1900, 1900, 1560, 1560), nrow = 5, ncol = 2)
+ir11 <- st_polygon(list(st_linestring(ir11))) # isolation room 1
+ir21 <- matrix(c(1070, 1070, 1380, 1380, 1070, 
+                1220, 1560, 1560, 1220, 1220), nrow = 5, ncol = 2)
+ir21 <- st_polygon(list(st_linestring(ir21))) # isolation room 2
+#nst <- matrix(c(150, 150, 350, 350, 150, 
+#                200, 300, 300, 200, 200), nrow = 5, ncol = 2)
+#nst <- st_polygon(list(st_linestring(nst))) # nurses station
+msp1 <- matrix(c(1070, 1070, 1380, 1380, 1070, 
+                730, 1220, 1220, 730, 730), nrow = 5, ncol = 2)
+msp1 <- st_polygon(list(st_linestring(msp1))) # metal sink and pipes area
+s11 <- matrix(c(400, 400, 1100, 1100, 400,
+                900, 1080, 1080, 900, 900), nrow = 5, ncol = 2) # nurses station
+s11 <-  st_polygon(list(st_linestring(s11)))
+s21 <- matrix(c(1010, 1010, 1050, 1050, 1010,
+                150, 590, 590, 150, 150), nrow = 5, ncol = 2) # nurses station
+s21 <-  st_polygon(list(st_linestring(s21)))
+s31 <- matrix(c(820, 820, 860, 860, 820,
+                1310, 1750, 1750, 1310, 1310), nrow = 5, ncol = 2) # nurses station
+s31 <-  st_polygon(list(st_linestring(s31)))
+#sa <- st_multilinestring(list(s1, s2, s3))
+all1 <- st_geometrycollection(list(out1, vest1, lrs1, hrs1, hrm1, 
+                                  lrm1, ir11, ir21, msp1))
+
+location_text <- data.frame(text = c("High risk\nsurgical",
+                                     "High risk\nmedical",
+                                     "Low risk\nmedical",
+                                     "Nurses\nstation",
+                                     "Guardian\nlobby",
+                                     "Isolation\nroom 1",
+                                     "Isolation\nroom 2",
+                                     "Sterilising\nsink area",
+                                     "Low risk\nsurgical"),
+                            x = c(200, 200, 750, 750, 580, 1220, 1220, 1220,1050),
+                            y = c(400, 1300, 1550, 1000, 400, 1700, 1400, 1000, 400))
+
+
+loc_env <- data.frame(location = c(
+                        "Oxygen delivery equipment",
+                        "Continuous positive airway pressure\n(CPAP) machines and tubes",
+                        "Solid surfaces",
+                        "Nurses station",
+                        "Supply trolley",
+                        "Side room #1",
+                        "Side room #2",
+                        "Metal sink",
+                        "Handwash sinks",
+                        "Patient chairs",
+                        "Oxygen tubes on drying rack",
+                        "Weighing scales",
+                        "Oxygen saturation probe",
+                        "Floor",
+                        "Admission resuscitaires",
+                        "Patient handwash sinks",
+                        "Patient benches",
+                        "Sluice sink",
+                        "Solid surfaces in surgical bay",
+                        "Stored cots in surgical bay",
+                        "Staff hand swabs",
+                        "",
+                        ""
+                      ),
+                      text = c("1) - located in various\nlocations on ward",
+                               "",
+                               "",
+                               "",
+                               "",
+                               "",
+                               "",
+                               "",
+                               "",
+                               "2",
+                               "3",
+                               "4",
+                               "5",
+                               "6",
+                               "7",
+                               "8",
+                               "9",
+                               "10",
+                               "11",
+                               "12",
+                               "13",
+                               "",
+                               ""
+                      ),
+                      x = c(700,
+                            1450,
+                            1450,
+                            1450,
+                            1450,
+                            1450,
+                            1450,
+                            1450,
+                            1450,
+                            800,
+                            350,
+                            1230,
+                            1230,
+                            1300,
+                            1200,
+                            100,
+                            650,
+                            600,
+                            1300,
+                            1100,
+                            1200,
+                            4000,
+                            0
+                        
+                      ),
+                      y = c(-200,
+                            1550,
+                            1550,
+                            1550,
+                            1550,
+                            1550,
+                            1550,
+                            1550,
+                            1550,
+                            1000,
+                            1000,
+                            1750,
+                            1400,
+                            1000,
+                            1150,
+                            1000,
+                            200,
+                            750,
+                            600,
+                            500,
+                            200,
+                            4000,
+                            -1500
+                      )
+)
+
+mapward <- ggplot() + 
+  geom_sf(data = all1) +
+  geom_text(data = location_text, aes(x = x, y = y, label = text)) +
+  theme(axis.ticks = element_blank(),
+        axis.text = element_blank()) +
+  labs(x = "",
+       y = "")
+
+
+
+mapswab <- ggplot() + 
+  geom_sf(data = all1) +
+  geom_text(data = loc_env, aes(x = x, y = y, label = text), size = 3) +
+  theme(axis.ticks = element_blank(),
+        axis.text = element_blank()) +
+  labs(x = "",
+       y = "") +
+    annotate("text", x = 2000, 
+             y = 1000, 
+             label = 
+               "1) Oxygen delivery equipment\n1)Continuous positive airway pressure\n(CPAP) machines and tubes\n1) Solid surfaces\n1) Handwash sinks\n1) Patient chairs\n1)Weighing scales\n1) Oxygen saturation probe\n1) Floor\n1) Staff hand swabs\n2) Nurses station\n3) Supply trolley\n4) Side room #1\n5) Side room #2\n6) Metal sink\n7) Oxygen tubes on drying rack\n8) Admission resuscitaires\n9) Patient handwash sinks\n10)Patient benches\n11) Sluice sink\n12) Solid surfaces in surgical bay\n13) Stored cots in surgical bay",
+             hjust = 0,
+             size = 3)
+
+ggarrange(mapward, mapswab, labels = c("A", "B"))
+
+```
+
+
+```{r Supplementary flow chart, echo = FALSE, warning = FALSE, fig.dim = c(10, 10), fig.cap =  "Supplementary Figure 2."}
+
+exclusion_total <- paste("Participants screened", num_screen, sep = "\n")
+exclusion_screenfailure <- paste("Participants excluded on screening", num_screen - num_recruit, sep = "\n")
+exclusion_recruited <- paste("Participants recruited", num_recruit, sep = "\n")
+exclusion_inadequate <- paste("Participants with inadequate samples or data", num_recruit - 90, sep = "\n")
+exclusion_modelling <- paste("Participants included in modelling analysis",
+                 90, sep = "\n")
+
+flowexclusion_total <- boxGrob(exclusion_total,
+                      x = 0.5,
+                      y = 0.8)
+flowexclusion_screenfailure <- boxGrob(exclusion_screenfailure,
+                      x = 0.8,
+                      y = 0.7)
+flowexclusion_recruited <- boxGrob(exclusion_recruited,
+                          x = coords(flowexclusion_total)$x,
+                          y = 0.6)
+flowexclusion_inadequate <- boxGrob(exclusion_inadequate,
+                          x = coords(flowexclusion_screenfailure)$x,
+                          y = 0.5)
+flowexclusion_modelling <- boxGrob(exclusion_modelling,
+                          x = coords(flowexclusion_total)$x,
+                          y = 0.4)
+
+connectGrob(flowexclusion_total, flowexclusion_recruited, "vertical")
+connectGrob(flowexclusion_total, flowexclusion_screenfailure, "-")
+connectGrob(flowexclusion_recruited, flowexclusion_modelling, "vertical")
+connectGrob(flowexclusion_recruited, flowexclusion_inadequate, "-")
+
+flowexclusion_total
+flowexclusion_recruited
+flowexclusion_screenfailure
+flowexclusion_modelling
+flowexclusion_inadequate
+```
+
+```{r supplementary figure 3, echo = FALSE, fig.cap = "Supplementary Figure 3.", fig.dim = c(10, 10)}
+
+allorganisms_cols <- c(kleb = "royalblue2", esbl = "gold1", 
+                       ecoli = "hotpink", acineto = "wheat3", 
+                       entero = "seagreen", other = "navy", 
+                       salmon = "orange2")
+
+all_micro_plot_allorganisms <- ggplot(data = lab_allorganisms, aes(x = Source, y = prop, fill = organism)) + 
+  geom_col(position = position_dodge(), colour = "black", width = 0.7) +
+  scale_fill_manual(values = allorganisms_cols,
+                    labels =  c("Any ESBL", "Klebsiella pneumoniae", "Escherichia coli",
+                                "Acinetobacter baumannii", "Enterobacter spp.", "Other ESBL organisms", "Salmonella spp."),
+                    breaks = c("esbl",
+                                 "kleb",
+                                 "ecoli",
+                                 "acineto",
+                                 "entero",
+                                 "other",
+                                 "salmon")) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        text = element_text(size = 20)) +
+  geom_errorbar(
+    aes(ymin = prop - ci, 
+        ymax = prop + ci), 
+    position = position_dodge(.7),
+    width = 0.5,
+    color = "black") +
+  labs(x = "Sample type",
+       y = "Percent positive",
+       fill = "ESBL organisms") + 
+  scale_x_discrete(labels = c("Neonatal stool",
+                              "Maternal stool",
+                              "Maternal hand",
+                              "Swaddling cloth",
+                              "Cot",
+                              "Staff hand",
+                              "Ward surfaces"))
+
+all_micro_plot_allorganisms
+
+
+
+```
+
+```{r snp distance graph, echo = FALSE, message = FALSE, warning = FALSE, fig.dim = c(10, 10), fig.cap = "Supplementary Figure 4."}
+
+#probability
+ggplot(data = density_combined) +
+  geom_line(aes(x = snp, y = prop), lwd = 1.2) +
+  geom_hline(yintercept = 0.5) +
+  geom_vline(xintercept = snp_dist) +
+  geom_line(aes(x = snp, y = not_clonal * 8), colour = "red", lwd = 1.2) +
+  geom_ribbon(aes(ymin = 0, ymax = not_clonal * 8, x = snp), fill = "red", alpha = 0.5) +
+  geom_line(aes(x = snp, y = clonal * 8), colour = "blue", lwd = 1.2) +
+  geom_ribbon(aes(ymin = 0, ymax = clonal * 8, x = snp), fill = "blue", alpha = 0.5) +
+  scale_y_continuous(
+    # Features of the first axis
+    name = "Probability of isolates being from recently clonal population",
+    limits = c(0, 1.2),
+    # Add a second axis and specify its features
+    sec.axis = sec_axis( trans=~./8, name="Density")) +
+  xlab("Pairwise SNP distance") +
+  theme(text = element_text(size = 20))
+
+
+```
+
+```{r sensitivity analysis, echo = FALSE, message = FALSE, warning = FALSE, fig.cap = "Supplementary Figure 5.", fig.dim = c(10, 13)}
+
+snp_zero <- 0
+snp_three <- 3
+snp_twenty <- 20
+
+refsnp_zero <- reftran %>%
+  filter(snpdist == snp_zero) %>%
+  distinct(rel_id, .keep_all = TRUE)
+
+refnlinks_zero <- refsnp_zero %>%
+  distinct(rel_id, .keep_all = TRUE) %>%
+  group_by(source2sink) %>%
+  count() %>%
+  left_join(refncomp, by = "source2sink") %>%
+  rename(ntrans = n, nsamples = nconnections) %>%
+  mutate(prop = ntrans / nsamples) %>%
+  mutate(source2sink = fct_reorder(source2sink, prop)) %>%
+  ungroup() %>%
+  mutate(uci = prop + (1.96 * sqrt(prop * (1-prop)/nsamples)),
+         lci = prop - (1.96 * sqrt(prop * (1-prop)/nsamples)),
+         lci = case_when(lci < 0 ~ 0,
+                         TRUE ~ lci)) %>%
+  arrange(desc(prop)) %>%
+  mutate(compartments = source2sink) %>%
+  separate_wider_delim(source2sink, delim = "-",
+                       names = c("compartment1", "compartment2"))
+
+refnlinks_network_zero <- refnlinks_zero %>%
+  select(compartment1, compartment2, prop) %>%
+  mutate(
+    #prop = round(prop, 2),
+         prop2 = prop * 1000)
+
+refsnp_three <- reftran %>%
+  filter(snpdist <= snp_three) %>%
+  distinct(rel_id, .keep_all = TRUE)
+
+refnlinks_three <- refsnp_three %>%
+  distinct(rel_id, .keep_all = TRUE) %>%
+  group_by(source2sink) %>%
+  count() %>%
+  left_join(refncomp, by = "source2sink") %>%
+  rename(ntrans = n, nsamples = nconnections) %>%
+  mutate(prop = ntrans / nsamples) %>%
+  mutate(source2sink = fct_reorder(source2sink, prop)) %>%
+  ungroup() %>%
+  mutate(uci = prop + (1.96 * sqrt(prop * (1-prop)/nsamples)),
+         lci = prop - (1.96 * sqrt(prop * (1-prop)/nsamples)),
+         lci = case_when(lci < 0 ~ 0,
+                         TRUE ~ lci)) %>%
+  arrange(desc(prop)) %>%
+  mutate(compartments = source2sink) %>%
+  separate_wider_delim(source2sink, delim = "-",
+                       names = c("compartment1", "compartment2"))
+
+refnlinks_network_three <- refnlinks_three %>%
+  select(compartment1, compartment2, prop) %>%
+  mutate(
+    #prop = round(prop, 2),
+         prop2 = prop * 1000)
+
+
+
+refsnp_twenty <- reftran %>%
+  filter(snpdist <= snp_twenty) %>%
+  distinct(rel_id, .keep_all = TRUE)
+
+refnlinks_twenty <- refsnp_twenty %>%
+  distinct(rel_id, .keep_all = TRUE) %>%
+  group_by(source2sink) %>%
+  count() %>%
+  left_join(refncomp, by = "source2sink") %>%
+  rename(ntrans = n, nsamples = nconnections) %>%
+  mutate(prop = ntrans / nsamples) %>%
+  mutate(source2sink = fct_reorder(source2sink, prop)) %>%
+  ungroup() %>%
+  mutate(uci = prop + (1.96 * sqrt(prop * (1-prop)/nsamples)),
+         lci = prop - (1.96 * sqrt(prop * (1-prop)/nsamples)),
+         lci = case_when(lci < 0 ~ 0,
+                         TRUE ~ lci)) %>%
+  arrange(desc(prop)) %>%
+  mutate(compartments = source2sink) %>%
+  separate_wider_delim(source2sink, delim = "-",
+                       names = c("compartment1", "compartment2"))
+
+refnlinks_network_twenty <- refnlinks_twenty %>%
+  select(compartment1, compartment2, prop) %>%
+  mutate(
+    #prop = round(prop, 2),
+         prop2 = prop * 1000)
+
+density_graph_zero <- ggplot(refnlinks_zero) +
+  geom_col(aes(x = fct_reorder(compartments, prop), y = prop), fill = "#BBBBBB", colour = "black") +
+  geom_point(aes(x = fct_reorder(compartments, prop), y = -0.003, colour = compartment1), size = 4) +
+    geom_point(aes(x = fct_reorder(compartments, prop), y = -0.001, colour = compartment2), size = 4) +
+  scale_colour_manual(values = source_cols) +
+  geom_errorbar(aes(x = compartments, ymin = lci, ymax = uci), width = 0.4) +
+  labs(y = "Circulation between compartments",
+       x = "Source pairs") +
+  ylim(-0.005, 0.08) +
+  theme(text = element_text(size = 16),
+        legend.position = "none") +
+  coord_flip()
+
+density_graph_three <- ggplot(refnlinks_three) +
+  geom_col(aes(x = fct_reorder(compartments, prop), y = prop), fill = "#BBBBBB", colour = "black") +
+  geom_point(aes(x = fct_reorder(compartments, prop), y = -0.003, colour = compartment1), size = 4) +
+    geom_point(aes(x = fct_reorder(compartments, prop), y = -0.001, colour = compartment2), size = 4) +
+  scale_colour_manual(values = source_cols) +
+  geom_errorbar(aes(x = compartments, ymin = lci, ymax = uci), width = 0.4) +
+  labs(y = "Circulation between compartments",
+       x = "Source pairs") +
+  ylim(-0.005, 0.08) +
+  theme(text = element_text(size = 16),
+        legend.position = "none") +
+  coord_flip()
+
+density_graph_supp <- ggplot(refnlinks) +
+  geom_col(aes(x = fct_reorder(compartments, prop), y = prop), fill = "#BBBBBB", colour = "black") +
+  geom_point(aes(x = fct_reorder(compartments, prop), y = -0.003, colour = compartment1), size = 4) +
+    geom_point(aes(x = fct_reorder(compartments, prop), y = -0.001, colour = compartment2), size = 4) +
+  scale_colour_manual(values = source_cols) +
+  geom_errorbar(aes(x = compartments, ymin = lci, ymax = uci), width = 0.4) +
+  labs(y = "Circulation between compartments",
+       x = "Source pairs") +
+  ylim(-0.005, 0.08) +
+  theme(text = element_text(size = 16),
+        legend.position = "none") +
+  coord_flip()
+
+density_graph_twenty <- ggplot(refnlinks_twenty) +
+  geom_col(aes(x = fct_reorder(compartments, prop), y = prop), fill = "#BBBBBB", colour = "black") +
+  geom_point(aes(x = fct_reorder(compartments, prop), y = -0.003, colour = compartment1), size = 4) +
+    geom_point(aes(x = fct_reorder(compartments, prop), y = -0.001, colour = compartment2), size = 4) +
+  scale_colour_manual(values = source_cols) +
+  geom_errorbar(aes(x = compartments, ymin = lci, ymax = uci), width = 0.4) +
+  labs(y = "Circulation between compartments",
+       x = "Source pairs") +
+  ylim(-0.005, 0.08) +
+  theme(text = element_text(size = 16),
+        legend.position = "none") +
+  coord_flip()
+
+ggarrange(density_graph_zero, density_graph_three, density_graph_supp, density_graph_twenty,
+          labels = c("A", "B", "C", "D"),
+          ncol = 1, 
+          nrow = 4)
+
+```
+
+```{r density of flux mgems, echo = FALSE, echo = FALSE, message = FALSE, warning = FALSE, fig.cap = "Supplementary Figure 6.", fig.dim = c(10, 13)}
+
+#may delete these if they are not useful
+
+refsnp_mgems <- reftran_mgems %>%
+  filter(snpdist < snp_dist) %>%
+  distinct(rel_id, .keep_all = TRUE)  %>%
+  filter(IDx != IDy)
+
+sourcex_mgems <- data.frame(source.x = c("Neonate's cot", 
+                                 "Neonate's stool", 
+                                 "Ward surfaces",
+                                 "Mother's stool",
+                                 "Mother's hands",
+                                 "Swaddling cloth"),
+                      nisolates = c(
+                        reftran_mgems %>% distinct(IDx, .keep_all = TRUE) %>% count(source.x) %>% filter(source.x == "Neonate's cot") %>% pull(n),
+                       reftran_mgems %>% distinct(IDx, .keep_all = TRUE) %>% count(source.x) %>% filter(source.x == "Neonate's stool") %>% pull(n),
+                       reftran_mgems %>% distinct(IDx, .keep_all = TRUE) %>% count(source.x) %>% filter(source.x == "Ward surfaces") %>% pull(n),
+                       reftran_mgems %>% distinct(IDx, .keep_all = TRUE) %>% count(source.x) %>% filter(source.x == "Mother's stool") %>% pull(n),
+                       reftran_mgems %>% distinct(IDx, .keep_all = TRUE) %>% count(source.x) %>% filter(source.x == "Mother's hands") %>% pull(n),
+                       reftran_mgems %>% distinct(IDx, .keep_all = TRUE) %>% count(source.x) %>% filter(source.x == "Swaddling cloth") %>% pull(n))) %>%
+  filter(!is.na(source.x))
+
+sourcey_mgems <- sourcex_mgems %>%
+  rename(source.y = source.x)
+
+#nuanced denominator
+refncomp_mgems <-  reftran_mgems %>% 
+    distinct(rel_id, .keep_all = TRUE) %>%
+    filter(!is.na(source.x) | !is.na(source.y)) %>%
+    filter(source2sink != "NA-NA") %>%
+    select(source2sink, source.x, source.y) %>%
+    distinct(source2sink, .keep_all = TRUE) %>%
+    left_join(sourcex_mgems, by = "source.x") %>%
+    left_join(sourcey_mgems, by = "source.y") %>%
+    rowwise() %>%
+    mutate(nconnections = case_when(source.x == source.y ~ as.numeric(sum(seq(nisolates.y:1))),
+                                  TRUE ~ nisolates.x * nisolates.y)) %>%
+  select(source2sink, nconnections)
+
+refnlinks_mgems <- refsnp_mgems %>%
+  distinct(rel_id, .keep_all = TRUE) %>%
+  filter(source2sink != "NA-NA") %>%
+  group_by(source2sink) %>%
+  count() %>%
+  left_join(refncomp_mgems, by = "source2sink") %>%
+  rename(ntrans = n, nsamples = nconnections) %>%
+  mutate(prop = ntrans / nsamples) %>%
+  mutate(source2sink = fct_reorder(source2sink, prop)) %>%
+  ungroup() %>%
+  mutate(uci = prop + (1.96 * sqrt(prop * (1-prop)/nsamples)),
+         lci = prop - (1.96 * sqrt(prop * (1-prop)/nsamples)),
+         lci = case_when(lci < 0 ~ 0,
+                         TRUE ~ lci)) %>%
+  arrange(desc(prop)) %>%
+  mutate(compartments = source2sink) %>%
+  separate_wider_delim(source2sink, delim = "-",
+                       names = c("compartment1", "compartment2"))
+
+
+refsnp_mgems_zero <- reftran_mgems %>%
+  filter(snpdist == snp_zero) %>%
+  distinct(rel_id, .keep_all = TRUE)  %>%
+  filter(IDx != IDy)
+
+#nuanced denominator
+refncomp_mgems <-  reftran_mgems %>% 
+    distinct(rel_id, .keep_all = TRUE) %>%
+    filter(!is.na(source.x) | !is.na(source.y)) %>%
+    filter(source2sink != "NA-NA") %>%
+    select(source2sink, source.x, source.y) %>%
+    distinct(source2sink, .keep_all = TRUE) %>%
+    left_join(sourcex_mgems, by = "source.x") %>%
+    left_join(sourcey_mgems, by = "source.y") %>%
+    rowwise() %>%
+    mutate(nconnections = case_when(source.x == source.y ~ as.numeric(sum(seq(nisolates.y:1))),
+                                  TRUE ~ nisolates.x * nisolates.y)) %>%
+  select(source2sink, nconnections)
+
+refnlinks_mgems_zero <- refsnp_mgems_zero %>%
+  distinct(rel_id, .keep_all = TRUE) %>%
+  filter(source2sink != "NA-NA") %>%
+  group_by(source2sink) %>%
+  count() %>%
+  left_join(refncomp_mgems, by = "source2sink") %>%
+  rename(ntrans = n, nsamples = nconnections) %>%
+  mutate(prop = ntrans / nsamples) %>%
+  mutate(source2sink = fct_reorder(source2sink, prop)) %>%
+  ungroup() %>%
+  mutate(uci = prop + (1.96 * sqrt(prop * (1-prop)/nsamples)),
+         lci = prop - (1.96 * sqrt(prop * (1-prop)/nsamples)),
+         lci = case_when(lci < 0 ~ 0,
+                         TRUE ~ lci)) %>%
+  arrange(desc(prop)) %>%
+  mutate(compartments = source2sink) %>%
+  separate_wider_delim(source2sink, delim = "-",
+                       names = c("compartment1", "compartment2"))
+
+refsnp_mgems_three <- reftran_mgems %>%
+  filter(snpdist <= snp_three) %>%
+  distinct(rel_id, .keep_all = TRUE)  %>%
+  filter(IDx != IDy)
+
+refnlinks_mgems_three <- refsnp_mgems_three %>%
+  distinct(rel_id, .keep_all = TRUE) %>%
+  filter(source2sink != "NA-NA") %>%
+  group_by(source2sink) %>%
+  count() %>%
+  left_join(refncomp_mgems, by = "source2sink") %>%
+  rename(ntrans = n, nsamples = nconnections) %>%
+  mutate(prop = ntrans / nsamples) %>%
+  mutate(source2sink = fct_reorder(source2sink, prop)) %>%
+  ungroup() %>%
+  mutate(uci = prop + (1.96 * sqrt(prop * (1-prop)/nsamples)),
+         lci = prop - (1.96 * sqrt(prop * (1-prop)/nsamples)),
+         lci = case_when(lci < 0 ~ 0,
+                         TRUE ~ lci)) %>%
+  arrange(desc(prop)) %>%
+  mutate(compartments = source2sink) %>%
+  separate_wider_delim(source2sink, delim = "-",
+                       names = c("compartment1", "compartment2"))
+
+refsnp_mgems_twenty <- reftran_mgems %>%
+  filter(snpdist <= snp_twenty) %>%
+  distinct(rel_id, .keep_all = TRUE)  %>%
+  filter(IDx != IDy)
+
+refnlinks_mgems_twenty <- refsnp_mgems_twenty %>%
+  distinct(rel_id, .keep_all = TRUE) %>%
+  filter(source2sink != "NA-NA") %>%
+  group_by(source2sink) %>%
+  count() %>%
+  left_join(refncomp_mgems, by = "source2sink") %>%
+  rename(ntrans = n, nsamples = nconnections) %>%
+  mutate(prop = ntrans / nsamples) %>%
+  mutate(source2sink = fct_reorder(source2sink, prop)) %>%
+  ungroup() %>%
+  mutate(uci = prop + (1.96 * sqrt(prop * (1-prop)/nsamples)),
+         lci = prop - (1.96 * sqrt(prop * (1-prop)/nsamples)),
+         lci = case_when(lci < 0 ~ 0,
+                         TRUE ~ lci)) %>%
+  arrange(desc(prop)) %>%
+  mutate(compartments = source2sink) %>%
+  separate_wider_delim(source2sink, delim = "-",
+                       names = c("compartment1", "compartment2"))
+
+
+density_graph_mgems_zero <- ggplot(refnlinks_mgems_zero) +
+  geom_col(aes(x = fct_reorder(compartments, prop), y = prop), fill = "#BBBBBB", colour = "black") +
+  geom_point(aes(x = fct_reorder(compartments, prop), y = -0.003, colour = compartment1), size = 4) +
+    geom_point(aes(x = fct_reorder(compartments, prop), y = -0.001, colour = compartment2), size = 4) +
+  scale_colour_manual(values = source_cols) +
+  geom_errorbar(aes(x = compartments, ymin = lci, ymax = uci), width = 0.4) +
+  labs(y = "Circulation between compartments",
+       x = "Source pairs") +
+  ylim(-0.005, 0.08) +
+  theme(text = element_text(size = 16),
+        legend.position = "none") +
+  coord_flip()
+
+density_graph_mgems_three <- ggplot(refnlinks_mgems_three) +
+  geom_col(aes(x = fct_reorder(compartments, prop), y = prop), fill = "#BBBBBB", colour = "black") +
+  geom_point(aes(x = fct_reorder(compartments, prop), y = -0.003, colour = compartment1), size = 4) +
+    geom_point(aes(x = fct_reorder(compartments, prop), y = -0.001, colour = compartment2), size = 4) +
+  scale_colour_manual(values = source_cols) +
+  geom_errorbar(aes(x = compartments, ymin = lci, ymax = uci), width = 0.4) +
+  labs(y = "Circulation between compartments",
+       x = "Source pairs") +
+  ylim(-0.005, 0.08) +
+  theme(text = element_text(size = 16),
+        legend.position = "none") +
+  coord_flip()
+
+density_graph_mgems_supp <- ggplot(refnlinks_mgems) +
+  geom_col(aes(x = fct_reorder(compartments, prop), y = prop), fill = "#BBBBBB", colour = "black") +
+  geom_point(aes(x = fct_reorder(compartments, prop), y = -0.003, colour = compartment1), size = 4) +
+    geom_point(aes(x = fct_reorder(compartments, prop), y = -0.001, colour = compartment2), size = 4) +
+  scale_colour_manual(values = source_cols) +
+  geom_errorbar(aes(x = compartments, ymin = lci, ymax = uci), width = 0.4) +
+  labs(y = "Circulation between compartments",
+       x = "Source pairs") +
+  ylim(-0.005, 0.08) +
+  theme(text = element_text(size = 16),
+        legend.position = "none") +
+  coord_flip()
+
+density_graph_mgems_twenty <- ggplot(refnlinks_mgems_twenty) +
+  geom_col(aes(x = fct_reorder(compartments, prop), y = prop), fill = "#BBBBBB", colour = "black") +
+  geom_point(aes(x = fct_reorder(compartments, prop), y = -0.003, colour = compartment1), size = 4) +
+    geom_point(aes(x = fct_reorder(compartments, prop), y = -0.001, colour = compartment2), size = 4) +
+  scale_colour_manual(values = source_cols) +
+  geom_errorbar(aes(x = compartments, ymin = lci, ymax = uci), width = 0.4) +
+  labs(y = "Circulation between compartments",
+       x = "Source pairs") +
+  ylim(-0.005, 0.08) +
+  theme(text = element_text(size = 16),
+        legend.position = "none") +
+  coord_flip()
+
+ggarrange(density_graph_mgems_zero, density_graph_mgems_three, density_graph_mgems_supp, density_graph_mgems_twenty,
+          labels = c("A", "B", "C", "D"),
+          ncol = 1, 
+          nrow = 4)
+
+```
+
+
+
+
+```{r sensitivity analysis time, echo = FALSE, warning = FALSE, fig.cap = "Supplementary Figure 7."}
+
+baby_notime <- data.frame()
+for(i in uniqueref){
+  run_function_notime <- trim_sources_notime(ref_transevents, i)
+  baby_notime <- rbind(baby_notime, run_function_notime)
+}
+
+baby_notime <- baby_notime %>%
+  distinct(rel_id, .keep_all = TRUE) %>%
+  mutate(timediff = -sample_interval)
+
+transmission_list <- baby_notime %>%
+  filter(between(sample_interval, 1, 14)) %>%
+  pull(Lane.x)
+
+ggplot(baby_notime %>% filter(Lane.x %in% transmission_list)) + 
+  geom_segment(aes(x = -14, xend = -1, y = Lane.x, yend = Lane.x), lwd = 10, colour = "lightblue") +
+  geom_vline(aes(xintercept = 0)) +
+  geom_violin(aes(y = Lane.x, x = as.numeric(timediff), fill = ST.x), 
+              drop = FALSE, colour = "black", scale = "width") +
+  geom_jitter(aes(y = Lane.x, x = as.numeric(timediff)), colour = "black", width = 0.1, size = 0.5, alpha = 0.5) +
+  labs(y = "Isolate",
+       x = "Time difference (days)",
+       fill = "ST")
+
+```
+
+```{r fit metrics, echo = FALSE, message = FALSE, fig.cap = "Supplementary Figure 8.", dpi=600}
+
+par(mfrow = c(2, 2))
+plot(gof_stats.neoabx, main = '')
+
+```
+
+
+```{r quality control, message = FALSE, echo = FALSE, fig.dim = c(7, 10), fig.cap = "Supplementary Figure 9"}
+
+cat_coefs <- ggplot(coefs_long) +
+  geom_line(aes(x = sample, y = value, colour = chain)) +
+  #xlim(c(2000, 20000)) +
+  labs(x = "Samples",
+       y = "Estimate",
+       colour = "Chain") +
+  facet_wrap(vars(variable), labeller = label_parsed)
+
+neo_labels = c(dlivmod = "Caesarean\nsection",
+               gestage = "Gestational\nage",
+               neoabx = "Neonatal\nantibiotics",
+               notbreast = "Fed by\nadjuncts",
+               o2 = "Oxygen\ntherapy",
+               outborn = "Born outside\nQECH",
+               sex = "Female\nsex",
+               wt = "Birthweight"
+               )
+cat_betaneo <- ggplot(beta_neo_long) +
+  geom_line(aes(x = sample, y = value, colour = chain)) +
+  #xlim(c(2000, 20000)) +
+  labs(x = "Samples",
+       y = "Estimate",
+       colour = "Chain") +
+  facet_wrap(vars(variable), labeller = as_labeller(neo_labels))
+
+
+mother_labels = c(anc_hosp = "ANC\nin hospital",
+                  matabx = "Maternal\nantibiotics",
+                  mathiv = "Maternal\nHIV")
+cat_betamother <- ggplot(beta_mother_long) +
+  geom_line(aes(x = sample, y = value, colour = chain)) +
+  #xlim(c(2000, 20000)) +
+  labs(x = "Samples",
+       y = "Estimate",
+       colour = "Chain") +
+  facet_wrap(vars(variable), labeller = as_labeller(mother_labels))
+
+cat_all <- ggarrange(cat_coefs, cat_betaneo, cat_betamother, nrow = 3, labels = c("A", "B", "C"), heights = c(2, 3, 2), widths = c(1, 2, 1))
+
+cat_all
+
+```
+
+
+```{r sensitivity analysis transmission, echo = FALSE}
+
+#first selecting samples that are at the start of a transmission event
+ref_transevents_zero <- reftran %>%
+  filter(Lane.x %in% stref$Lane.x) %>%
+  filter(snpdist == snp_zero)
+  
+uniqueref_zero <- unique(c(ref_transevents_zero$Lane.x, ref_transevents_zero$Lane.y))
+
+baby_closetime_zero <- data.frame()
+for(i in uniqueref_zero){
+  run_function_zero <- trim_sources(ref_transevents_zero, i)
+  baby_closetime_zero <- rbind(baby_closetime_zero, run_function_zero)
+}
+baby_closetime_zero <- baby_closetime_zero %>%
+  distinct(rel_id, .keep_all = TRUE)
+
+#different transmission event sources
+transsources_zero <- baby_closetime_zero %>%
+  mutate(sourceprecise = case_when(source.y == "Ward surfaces" ~ "Ward surfaces",
+                                   source.y == "Neonate's stool" &
+                                     dyad.x != dyad.y ~ "Other neonates",
+                                   source.y == "Mother's stool" ~ "Mother's stool",
+                                   source.y == "Neonate's cot" ~ "Cots",
+                                   source.y == "Mother's hands"~ "Mother's hands",
+                                   source.y == "Swaddling cloth" ~ "Swaddling cloth",
+                                   TRUE ~ source.y)) %>%
+  count(sourceprecise) %>%
+  arrange(desc(n))
+
+
+#first selecting samples that are at the start of a transmission event
+ref_transevents_three <- reftran %>%
+  filter(Lane.x %in% stref$Lane.x) %>%
+  filter(snpdist <= snp_three)
+  
+uniqueref_three <- unique(c(ref_transevents_three$Lane.x, ref_transevents_three$Lane.y))
+
+baby_closetime_three <- data.frame()
+for(i in uniqueref_three){
+  run_function_three <- trim_sources(ref_transevents_three, i)
+  baby_closetime_three <- rbind(baby_closetime_three, run_function_three)
+}
+baby_closetime_three <- baby_closetime_three %>%
+  distinct(rel_id, .keep_all = TRUE)
+
+#different transmission event sources
+transsources_three <- baby_closetime_three %>%
+  mutate(sourceprecise = case_when(source.y == "Ward surfaces" ~ "Ward surfaces",
+                                   source.y == "Neonate's stool" &
+                                     dyad.x != dyad.y ~ "Other neonates",
+                                   source.y == "Mother's stool" ~ "Mother's stool",
+                                   source.y == "Neonate's cot" ~ "Cots",
+                                   source.y == "Mother's hands"~ "Mother's hands",
+                                   source.y == "Swaddling cloth" ~ "Swaddling cloth",
+                                   TRUE ~ source.y)) %>%
+  count(sourceprecise) %>%
+  arrange(desc(n))
+
+
+#first selecting samples that are at the start of a transmission event
+ref_transevents_twenty <- reftran %>%
+  filter(Lane.x %in% stref$Lane.x) %>%
+  filter(snpdist <= snp_twenty)
+  
+uniqueref_twenty <- unique(c(ref_transevents_twenty$Lane.x, ref_transevents_twenty$Lane.y))
+
+baby_closetime_twenty <- data.frame()
+for(i in uniqueref_twenty){
+  run_function_twenty <- trim_sources(ref_transevents_twenty, i)
+  baby_closetime_twenty <- rbind(baby_closetime_twenty, run_function_twenty)
+}
+baby_closetime_twenty <- baby_closetime_twenty %>%
+  distinct(rel_id, .keep_all = TRUE)
+
+#different transmission event sources
+transsources_twenty <- baby_closetime_twenty %>%
+  mutate(sourceprecise = case_when(source.y == "Ward surfaces" ~ "Ward surfaces",
+                                   source.y == "Neonate's stool" &
+                                     dyad.x != dyad.y ~ "Other neonates",
+                                   source.y == "Mother's stool" ~ "Mother's stool",
+                                   source.y == "Neonate's cot" ~ "Cots",
+                                   source.y == "Mother's hands"~ "Mother's hands",
+                                   source.y == "Swaddling cloth" ~ "Swaddling cloth",
+                                   TRUE ~ source.y)) %>%
+  count(sourceprecise) %>%
+  arrange(desc(n))
+
+```
+
+
+```{r sensitivity analysis transmission mgems, echo = FALSE}
+
+#first selecting samples that are at the start of a transmission event
+ref_transevents_mgems_zero <- reftran_mgems %>%
+  filter(IDx %in% mgemsref$IDx) %>%
+  filter(snpdist == snp_zero)
+  
+uniqueref_mgems_zero <- unique(c(ref_transevents_mgems_zero$IDx, ref_transevents_mgems_zero$IDy))
+
+baby_closetime_mgems_zero <- data.frame()
+for(i in uniqueref_mgems_zero){
+  run_function_mgems_zero <- trim_sources_mgems(ref_transevents_mgems_zero, i)
+  baby_closetime_mgems_zero <- rbind(baby_closetime_mgems_zero, run_function_mgems_zero)
+}
+baby_closetime_mgems_zero <- baby_closetime_mgems_zero %>%
+  distinct(rel_id, .keep_all = TRUE)
+
+env_mgems_zero <- env %>%
+  rename(cresid.y = cresid.x)
+
+envsources_mgems_zero <- baby_closetime_mgems_zero %>%
+  filter(source.y == "Ward surfaces") %>%
+  left_join(env_mgems_zero, by = "cresid.y") %>%
+  count(envtype) %>%
+  arrange(desc(n))
+
+transsources_mgems_zero <- baby_closetime_mgems_zero %>%
+  mutate(sourceprecise = case_when(source.y == "Ward surfaces" ~ "Ward surfaces",
+                                   source.y == "Neonate's stool" &
+                                     dyad.x != dyad.y ~ "Other neonate",
+                                   source.y == "Mother's stool" ~ "Mothers' stool",
+                                   source.y == "Neonate's cot" ~ "Cot",
+                                   source.y == "Mother's hands"~ "Mother's hands",
+                                   source.y == "Swaddling cloth" ~ "Swaddling cloth",
+                                   TRUE ~ source.y)) %>%
+  count(sourceprecise) %>%
+  arrange(desc(n)) %>%
+  rename(mGEMS = n)
+
+#first selecting samples that are at the start of a transmission event
+ref_transevents_mgems_three <- reftran_mgems %>%
+  filter(IDx %in% mgemsref$IDx) %>%
+  filter(snpdist < snp_three)
+  
+uniqueref_mgems_three <- unique(c(ref_transevents_mgems_three$IDx, ref_transevents_mgems_three$IDy))
+
+baby_closetime_mgems_three <- data.frame()
+for(i in uniqueref_mgems_three){
+  run_function_mgems_three <- trim_sources_mgems(ref_transevents_mgems_three, i)
+  baby_closetime_mgems_three <- rbind(baby_closetime_mgems_three, run_function_mgems_three)
+}
+baby_closetime_mgems_three <- baby_closetime_mgems_three %>%
+  distinct(rel_id, .keep_all = TRUE)
+
+env_mgems_three <- env %>%
+  rename(cresid.y = cresid.x)
+
+envsources_mgems_three <- baby_closetime_mgems_three %>%
+  filter(source.y == "Ward surfaces") %>%
+  left_join(env_mgems_three, by = "cresid.y") %>%
+  count(envtype) %>%
+  arrange(desc(n))
+
+transsources_mgems_three <- baby_closetime_mgems_three %>%
+  mutate(sourceprecise = case_when(source.y == "Ward surfaces" ~ "Ward surfaces",
+                                   source.y == "Neonate's stool" &
+                                     dyad.x != dyad.y ~ "Other neonate",
+                                   source.y == "Mother's stool" ~ "Mothers' stool",
+                                   source.y == "Neonate's cot" ~ "Cot",
+                                   source.y == "Mother's hands"~ "Mother's hands",
+                                   source.y == "Swaddling cloth" ~ "Swaddling cloth",
+                                   TRUE ~ source.y)) %>%
+  count(sourceprecise) %>%
+  arrange(desc(n)) %>%
+  rename(mGEMS = n)
+
+#first selecting samples that are at the start of a transmission event
+ref_transevents_mgems_twenty <- reftran_mgems %>%
+  filter(IDx %in% mgemsref$IDx) %>%
+  filter(snpdist <= snp_twenty)
+  
+uniqueref_mgems_twenty <- unique(c(ref_transevents_mgems_twenty$IDx, ref_transevents_mgems_twenty$IDy))
+
+baby_closetime_mgems_twenty <- data.frame()
+for(i in uniqueref_mgems_twenty){
+  run_function_mgems_twenty <- trim_sources_mgems(ref_transevents_mgems_twenty, i)
+  baby_closetime_mgems_twenty <- rbind(baby_closetime_mgems_twenty, run_function_mgems_twenty)
+}
+baby_closetime_mgems_twenty <- baby_closetime_mgems_twenty %>%
+  distinct(rel_id, .keep_all = TRUE)
+
+env_mgems_twenty <- env %>%
+  rename(cresid.y = cresid.x)
+
+envsources_mgems_twenty <- baby_closetime_mgems_twenty %>%
+  filter(source.y == "Ward surfaces") %>%
+  left_join(env_mgems_twenty, by = "cresid.y") %>%
+  count(envtype) %>%
+  arrange(desc(n))
+
+transsources_mgems_twenty <- baby_closetime_mgems_twenty %>%
+  mutate(sourceprecise = case_when(source.y == "Ward surfaces" ~ "Ward surfaces",
+                                   source.y == "Neonate's stool" &
+                                     dyad.x != dyad.y ~ "Other neonate",
+                                   source.y == "Mother's stool" ~ "Mothers' stool",
+                                   source.y == "Neonate's cot" ~ "Cot",
+                                   source.y == "Mother's hands"~ "Mother's hands",
+                                   source.y == "Swaddling cloth" ~ "Swaddling cloth",
+                                   TRUE ~ source.y)) %>%
+  count(sourceprecise) %>%
+  arrange(desc(n)) %>%
+  rename(mGEMS = n)
+
+```
+
+
+
+```{r ergm snp sensitivity analysis, echo = FALSE, fig.dim = c(14, 10), warning = FALSE, message = FALSE}
+
+
+
+neo_connections_zero <- neo_all_network_zero %>%
+  select(from, to)
+
+neo_snp_zero <- neo_all_network_zero %>%
+  select(from, to, snplink, ST.x)
+
+neo_cot_zero <- neo_all_network_zero %>%
+  select(from, to, cot)
+
+neo_bothcot_zero <- neo_cot_zero %>%
+  filter(cot == 1) %>%
+  rename(typeoflink = cot) %>%
+  mutate(typeoflink = "cot")
+
+neo_bothsnp_zero <- neo_snp_zero %>%
+  filter(snplink == 1) %>%
+  rename(typeoflink = ST.x) %>%
+  select(-snplink)
+
+neo_both_zero <- neo_bothsnp_zero %>%
+  full_join(neo_bothcot_zero, by = c("from", "to")) %>%
+  mutate(typeoflink.y = case_when(typeoflink.y == "cot" ~ 8,
+                                  TRUE ~ 1),
+         typeoflink.x = case_when(is.na(typeoflink.x) ~ "snow2",
+                                  typeoflink.x == "ST15" ~ "red",
+                                  typeoflink.x == "ST2793" ~ "blue",
+                                  typeoflink.x == "ST340 and ST15" ~ "gold1",
+                                  typeoflink.x == "ST3132" ~ "green")) %>%
+  rename(ST = typeoflink.x, cot = typeoflink.y) %>%
+  arrange(desc(ST))
+
+#create network
+neo_network_zero <- as.network(neo_connections_zero)
+
+#list of missing neonatal values
+list_missing_from_covariates_zero <- get.vertex.attribute(neo_network_zero, "vertex.names")[!get.vertex.attribute(neo_network_zero, "vertex.names") %in% neo_netcov$neoid]
+
+neo_netcov_zero <- neo_covariates_network %>%
+  filter(neoid %in% get.vertex.attribute(neo_network_zero, "vertex.names")) %>%
+  select(neoid, neoabx, gestage, wt, o2)
+
+#list of 
+all_neo_netcov_zero <- data.frame(neoid = get.vertex.attribute(neo_network_zero, "vertex.names")) %>%
+  left_join(neo_netcov_zero, by = "neoid")
+
+all_neo_netcov_o2_zero <- all_neo_netcov_zero %>%
+  select(o2) %>%
+  replace_na(list(o2 = 0))
+
+all_neo_netcov_neoabx_zero <- all_neo_netcov_zero %>%
+  select(neoabx) %>%
+  replace_na(list(neoabx = 0))
+
+all_neo_netcov_wt_zero <- all_neo_netcov_zero %>%
+  select(wt) %>%
+  replace_na(list(wt = 0))
+
+  
+##SORT OUT MISSING NA
+
+#setting attributes
+snp_network_zero <- as.network(neo_snp_zero)
+not_snp_zero <- which(get.edge.attribute(snp_network_zero, "snplink") == FALSE)
+delete.edges(snp_network_zero, not_snp_zero)
+set.vertex.attribute(snp_network_zero, "o2", all_neo_netcov_o2_zero$o2)
+set.vertex.attribute(snp_network_zero, "wt", all_neo_netcov_wt_zero$wt)
+set.vertex.attribute(snp_network_zero, "neoabx", all_neo_netcov_neoabx_zero$neoabx)
+cot_network_zero <- as.network(neo_cot_zero)
+not_cot_zero <- which(get.edge.attribute(cot_network_zero, "cot") == FALSE)
+delete.edges(cot_network_zero, not_cot_zero)
+
+network.model.neoabx.zero <- ergm(snp_network_zero ~ edges + edgecov(cot_network_zero) + nodecov('neoabx'))
+
+gof_stats.neoabx.zero <- gof(network.model.neoabx.zero, GOF = ~idegree + odegree + distance + model)
+
+pval_formatted_zero <- c(as.character(format.pval(summary(network.model.neoabx.zero)$coefficients[,5], digits = 2)))
+
+network_coef_zero <- data.frame(Factor = c("Edges", "Cots", "Neonatal antibiotics"), 
+                            "Log-odds"= round(coef((network.model.neoabx.zero)), digits = 2),
+                            Probability = c(signif(expit(coef((network.model.neoabx.zero)))[1], digits = 2),
+                                            signif(expit(coef((network.model.neoabx.zero))[1] + coef((network.model.neoabx.zero)))[2], digits = 2),
+                                            signif(expit(coef((network.model.neoabx.zero))[1] + coef((network.model.neoabx.zero)))[3], digits = 2)),
+                            "p value" = pval_formatted_zero)
+
+neo_connections_three <- neo_all_network_three %>%
+  select(from, to)
+
+neo_snp_three <- neo_all_network_three %>%
+  select(from, to, snplink, ST.x)
+
+neo_cot_three <- neo_all_network_three %>%
+  select(from, to, cot)
+
+neo_bothcot_three <- neo_cot_three %>%
+  filter(cot == 1) %>%
+  rename(typeoflink = cot) %>%
+  mutate(typeoflink = "cot")
+
+neo_bothsnp_three <- neo_snp_three %>%
+  filter(snplink == 1) %>%
+  rename(typeoflink = ST.x) %>%
+  select(-snplink)
+
+neo_both_three <- neo_bothsnp_three %>%
+  full_join(neo_bothcot_three, by = c("from", "to")) %>%
+  mutate(typeoflink.y = case_when(typeoflink.y == "cot" ~ 8,
+                                  TRUE ~ 1),
+         typeoflink.x = case_when(is.na(typeoflink.x) ~ "snow2",
+                                  typeoflink.x == "ST15" ~ "red",
+                                  typeoflink.x == "ST2793" ~ "blue",
+                                  typeoflink.x == "ST340 and ST15" ~ "gold1",
+                                  typeoflink.x == "ST3132" ~ "green")) %>%
+  rename(ST = typeoflink.x, cot = typeoflink.y) %>%
+  arrange(desc(ST))
+
+#create network
+neo_network_three <- as.network(neo_connections_three)
+
+#list of missing neonatal values
+list_missing_from_covariates_three <- get.vertex.attribute(neo_network_three, "vertex.names")[!get.vertex.attribute(neo_network_three, "vertex.names") %in% neo_netcov$neoid]
+
+neo_netcov_three <- neo_covariates_network %>%
+  filter(neoid %in% get.vertex.attribute(neo_network_three, "vertex.names")) %>%
+  select(neoid, neoabx, gestage, wt, o2)
+
+#list of 
+all_neo_netcov_three <- data.frame(neoid = get.vertex.attribute(neo_network_three, "vertex.names")) %>%
+  left_join(neo_netcov_three, by = "neoid")
+
+all_neo_netcov_o2_three <- all_neo_netcov_three %>%
+  select(o2) %>%
+  replace_na(list(o2 = 0))
+
+all_neo_netcov_neoabx_three <- all_neo_netcov_three %>%
+  select(neoabx) %>%
+  replace_na(list(neoabx = 0))
+
+all_neo_netcov_wt_three <- all_neo_netcov_three %>%
+  select(wt) %>%
+  replace_na(list(wt = 0))
+
+  
+##SORT OUT MISSING NA
+
+#setting attributes
+snp_network_three <- as.network(neo_snp_three)
+not_snp_three <- which(get.edge.attribute(snp_network_three, "snplink") == FALSE)
+delete.edges(snp_network_three, not_snp_three)
+set.vertex.attribute(snp_network_three, "o2", all_neo_netcov_o2_three$o2)
+set.vertex.attribute(snp_network_three, "wt", all_neo_netcov_wt_three$wt)
+set.vertex.attribute(snp_network_three, "neoabx", all_neo_netcov_neoabx_three$neoabx)
+cot_network_three <- as.network(neo_cot_three)
+not_cot_three <- which(get.edge.attribute(cot_network_three, "cot") == FALSE)
+delete.edges(cot_network_three, not_cot_three)
+
+network.model.neoabx.three <- ergm(snp_network_three ~ edges + edgecov(cot_network_three) + nodecov('neoabx'))
+
+gof_stats.neoabx.three <- gof(network.model.neoabx.three, GOF = ~idegree + odegree + distance + model)
+
+pval_formatted_three <- c(as.character(format.pval(summary(network.model.neoabx.three)$coefficients[,5], digits = 2)))
+
+network_coef_three <- data.frame(Factor = c("Edges", "Cots", "Neonatal antibiotics"), 
+                            "Log-odds"= round(coef((network.model.neoabx.three)), digits = 2),
+                            Probability = c(signif(expit(coef((network.model.neoabx.three)))[1], digits = 2),
+                                            signif(expit(coef((network.model.neoabx.three))[1] + coef((network.model.neoabx.three)))[2], digits = 2),
+                                            signif(expit(coef((network.model.neoabx.three))[1] + coef((network.model.neoabx.three)))[3], digits = 2)),
+                            "p value" = pval_formatted_three)
+
+neo_connections_twenty <- neo_all_network_twenty %>%
+  select(from, to)
+
+neo_snp_twenty <- neo_all_network_twenty %>%
+  select(from, to, snplink, ST.x)
+
+neo_cot_twenty <- neo_all_network_twenty %>%
+  select(from, to, cot)
+
+neo_bothcot_twenty <- neo_cot_twenty %>%
+  filter(cot == 1) %>%
+  rename(typeoflink = cot) %>%
+  mutate(typeoflink = "cot")
+
+neo_bothsnp_twenty <- neo_snp_twenty %>%
+  filter(snplink == 1) %>%
+  rename(typeoflink = ST.x) %>%
+  select(-snplink)
+
+neo_both_twenty <- neo_bothsnp_twenty %>%
+  full_join(neo_bothcot_twenty, by = c("from", "to")) %>%
+  mutate(typeoflink.y = case_when(typeoflink.y == "cot" ~ 8,
+                                  TRUE ~ 1),
+         typeoflink.x = case_when(is.na(typeoflink.x) ~ "snow2",
+                                  typeoflink.x == "ST15" ~ "red",
+                                  typeoflink.x == "ST2793" ~ "blue",
+                                  typeoflink.x == "ST340 and ST15" ~ "gold1",
+                                  typeoflink.x == "ST3132" ~ "green")) %>%
+  rename(ST = typeoflink.x, cot = typeoflink.y) %>%
+  arrange(desc(ST))
+
+#create network
+neo_network_twenty <- as.network(neo_connections_twenty)
+
+#list of missing neonatal values
+list_missing_from_covariates_twenty <- get.vertex.attribute(neo_network_twenty, "vertex.names")[!get.vertex.attribute(neo_network_twenty, "vertex.names") %in% neo_netcov$neoid]
+
+neo_netcov_twenty <- neo_covariates_network %>%
+  filter(neoid %in% get.vertex.attribute(neo_network_twenty, "vertex.names")) %>%
+  select(neoid, neoabx, gestage, wt, o2)
+
+#list of 
+all_neo_netcov_twenty <- data.frame(neoid = get.vertex.attribute(neo_network_twenty, "vertex.names")) %>%
+  left_join(neo_netcov_twenty, by = "neoid")
+
+all_neo_netcov_o2_twenty <- all_neo_netcov_twenty %>%
+  select(o2) %>%
+  replace_na(list(o2 = 0))
+
+all_neo_netcov_neoabx_twenty <- all_neo_netcov_twenty %>%
+  select(neoabx) %>%
+  replace_na(list(neoabx = 0))
+
+all_neo_netcov_wt_twenty <- all_neo_netcov_twenty %>%
+  select(wt) %>%
+  replace_na(list(wt = 0))
+
+  
+##SORT OUT MISSING NA
+
+#setting attributes
+snp_network_twenty <- as.network(neo_snp_twenty)
+not_snp_twenty <- which(get.edge.attribute(snp_network_twenty, "snplink") == FALSE)
+delete.edges(snp_network_twenty, not_snp_twenty)
+set.vertex.attribute(snp_network_twenty, "o2", all_neo_netcov_o2_twenty$o2)
+set.vertex.attribute(snp_network_twenty, "wt", all_neo_netcov_wt_twenty$wt)
+set.vertex.attribute(snp_network_twenty, "neoabx", all_neo_netcov_neoabx_twenty$neoabx)
+cot_network_twenty <- as.network(neo_cot_twenty)
+not_cot_twenty <- which(get.edge.attribute(cot_network_twenty, "cot") == FALSE)
+delete.edges(cot_network_twenty, not_cot_twenty)
+
+network.model.neoabx.twenty <- ergm(snp_network_twenty ~ edges + edgecov(cot_network_twenty) + nodecov('neoabx'))
+
+gof_stats.neoabx.twenty <- gof(network.model.neoabx.twenty, GOF = ~idegree + odegree + distance + model)
+
+pval_formatted_twenty <- c(as.character(format.pval(summary(network.model.neoabx.twenty)$coefficients[,5], digits = 2)))
+
+network_coef_twenty <- data.frame(Factor = c("Edges", "Cots", "Neonatal antibiotics"), 
+                            "Log-odds"= round(coef((network.model.neoabx.twenty)), digits = 2),
+                            Probability = c(signif(expit(coef((network.model.neoabx.twenty)))[1], digits = 2),
+                                            signif(expit(coef((network.model.neoabx.twenty))[1] + coef((network.model.neoabx.twenty)))[2], digits = 2),
+                                            signif(expit(coef((network.model.neoabx.twenty))[1] + coef((network.model.neoabx.twenty)))[3], digits = 2)),
+                            "p value" = pval_formatted_twenty)
+
+```
+
+```{r ergm mgems sensitivity snps, echo = FALSE, warning = FALSE, message = FALSE}
+
+neo_mgems_zero <- neo_all_network_mgems_zero %>%
+  select(from, to, mgemslink, ST.x)
+
+mgems_network_zero <- as.network(neo_mgems_zero)
+not_mgems_zero <- which(get.edge.attribute(mgems_network_zero, "mgemslink") == FALSE)
+delete.edges(mgems_network_zero, not_mgems_zero)
+set.vertex.attribute(mgems_network_zero, "o2", all_neo_netcov_o2$o2)
+set.vertex.attribute(mgems_network_zero, "wt", all_neo_netcov_wt$wt)
+set.vertex.attribute(mgems_network_zero, "neoabx", all_neo_netcov_neoabx$neoabx)
+
+network.model.mgems.zero <- ergm(mgems_network_zero ~ edges + edgecov(cot_network) + nodecov('neoabx'))
+
+gof_stats.mgems.zero <- gof(network.model.mgems.zero, GOF = ~idegree + odegree + distance + model)
+
+pval_formatted_mgems_zero <- c(as.character(format.pval(summary(network.model.mgems.zero)$coefficients[,5], digits = 2)))
+
+network_coef_mgems_zero <- data.frame(Factor = c("Edges", "Cots", "Neonatal antibiotics"), 
+                            "Log-odds"= round(coef((network.model.mgems.zero)), digits = 2),
+                            Probability = c(signif(expit(coef((network.model.mgems.zero)))[1], digits = 2),
+                                            signif(expit(coef((network.model.mgems.zero))[1] + coef((network.model.mgems.zero)))[2], digits = 2),
+                                            signif(expit(coef((network.model.mgems.zero))[1] + coef((network.model.mgems.zero)))[3], digits = 2)),
+                            "p value" = pval_formatted_mgems_zero)
+
+
+
+neo_mgems_three <- neo_all_network_mgems_three %>%
+  select(from, to, mgemslink, ST.x)
+
+mgems_network_three <- as.network(neo_mgems_three)
+not_mgems_three <- which(get.edge.attribute(mgems_network_three, "mgemslink") == FALSE)
+delete.edges(mgems_network_three, not_mgems_three)
+set.vertex.attribute(mgems_network_three, "o2", all_neo_netcov_o2$o2)
+set.vertex.attribute(mgems_network_three, "wt", all_neo_netcov_wt$wt)
+set.vertex.attribute(mgems_network_three, "neoabx", all_neo_netcov_neoabx$neoabx)
+
+network.model.mgems.three <- ergm(mgems_network_three ~ edges + edgecov(cot_network) + nodecov('neoabx'))
+
+gof_stats.mgems.three <- gof(network.model.mgems.three, GOF = ~idegree + odegree + distance + model)
+
+pval_formatted_mgems_three <- c(as.character(format.pval(summary(network.model.mgems.three)$coefficients[,5], digits = 2)))
+
+network_coef_mgems_three <- data.frame(Factor = c("Edges", "Cots", "Neonatal antibiotics"), 
+                            "Log-odds"= round(coef((network.model.mgems.three)), digits = 2),
+                            Probability = c(signif(expit(coef((network.model.mgems.three)))[1], digits = 2),
+                                            signif(expit(coef((network.model.mgems.three))[1] + coef((network.model.mgems.three)))[2], digits = 2),
+                                            signif(expit(coef((network.model.mgems.three))[1] + coef((network.model.mgems.three)))[3], digits = 2)),
+                            "p value" = pval_formatted_mgems_three)
+
+pval_formatted_mgems <- c(as.character(format.pval(summary(network.model.mgems)$coefficients[,5], digits = 2)))
+
+network_coef_mgems <- data.frame(Factor = c("Edges", "Cots", "Neonatal antibiotics"), 
+                            "Log-odds"= round(coef((network.model.mgems)), digits = 2),
+                            Probability = c(signif(expit(coef((network.model.mgems)))[1], digits = 2),
+                                            signif(expit(coef((network.model.mgems))[1] + coef((network.model.mgems)))[2], digits = 2),
+                                            signif(expit(coef((network.model.mgems))[1] + coef((network.model.mgems)))[3], digits = 2)),
+                            "p value" = pval_formatted_mgems)
+
+neo_mgems_twenty <- neo_all_network_mgems_twenty %>%
+  select(from, to, mgemslink, ST.x)
+
+mgems_network_twenty <- as.network(neo_mgems_twenty)
+not_mgems_twenty <- which(get.edge.attribute(mgems_network_twenty, "mgemslink") == FALSE)
+delete.edges(mgems_network_twenty, not_mgems_twenty)
+set.vertex.attribute(mgems_network_twenty, "o2", all_neo_netcov_o2$o2)
+set.vertex.attribute(mgems_network_twenty, "wt", all_neo_netcov_wt$wt)
+set.vertex.attribute(mgems_network_twenty, "neoabx", all_neo_netcov_neoabx$neoabx)
+
+network.model.mgems.twenty <- ergm(mgems_network_twenty ~ edges + edgecov(cot_network) + nodecov('neoabx'))
+
+gof_stats.mgems.twenty <- gof(network.model.mgems.twenty, GOF = ~idegree + odegree + distance + model)
+
+pval_formatted_mgems_twenty <- c(as.character(format.pval(summary(network.model.mgems.twenty)$coefficients[,5], digits = 2)))
+
+network_coef_mgems_twenty <- data.frame(Factor = c("Edges", "Cots", "Neonatal antibiotics"), 
+                            "Log-odds"= round(coef((network.model.mgems.twenty)), digits = 2),
+                            Probability = c(signif(expit(coef((network.model.mgems.twenty)))[1], digits = 2),
+                                            signif(expit(coef((network.model.mgems.twenty))[1] + coef((network.model.mgems.twenty)))[2], digits = 2),
+                                            signif(expit(coef((network.model.mgems.twenty))[1] + coef((network.model.mgems.twenty)))[3], digits = 2)),
+                            "p value" = pval_formatted_mgems_twenty)
+
+```
+
+
+```{r end, echo = FALSE}
+
+
+```
