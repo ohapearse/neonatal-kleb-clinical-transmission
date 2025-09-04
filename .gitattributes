@@ -1,0 +1,2 @@
+data_markdown/snps_metadata_mgems.csv filter=lfs diff=lfs merge=lfs -text
+data_markdown/snps_metadata_wgs.csv filter=lfs diff=lfs merge=lfs -text
