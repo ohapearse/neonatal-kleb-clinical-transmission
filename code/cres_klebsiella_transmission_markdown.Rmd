@@ -1,9 +1,9 @@
 ---
 title: "Extended-Spectrum Beta-Lactamase Klebsiella pneumoniae on a Malawian neonatal unit is amplified by neonates and transmitted by maternal hands, cots and ward surfaces: Figures"
 output:
+  word_document:
   html_document:
     df_print: paged
-  word_document:
 csl: the-lancet-infectious-diseases.csl
 ---
 
@@ -1501,7 +1501,10 @@ cols = c("Median" = "black")
 
 envinvandstool <- rbind(envboth, envboth_stool)
 
-envinvandstoolgraph <- ggplot(envinvandstool) +
+stgraph_cols <- c("null" = "mediumblue", "test" = "red", "after" = "seagreen")
+
+envinvandstoolgraph <- ggplot(envinvandstool %>% 
+                                mutate(arm = fct_relevel(arm, "null", "test", "after"))) +
   geom_histogram(aes(x = prop, fill = arm), alpha = 0.5, bins = 60) +
   geom_vline(aes(xintercept = median), lwd = 1) +
   facet_grid(rows = vars(arm),
@@ -1512,10 +1515,14 @@ envinvandstoolgraph <- ggplot(envinvandstool) +
   labs(x = "Proportion of isolated K. pneumoniae\nthat are invasive or stool ST",
        y = "Density",
        fill = "Timepoint in relation\nto invasive/stool isolate") +
-  scale_fill_discrete(labels = c("Random",
+  scale_fill_manual(labels = c("Random",
                                  "Before",
-                                 "After")) +
-  scale_colour_manual(name="here",values=cols) +
+                                 "After"),
+                      breaks = c("null",
+                                 "test",
+                                 "after"),
+                    values = stgraph_cols) +
+  #scale_colour_manual(name="here",values=cols) +
   theme(text = element_text(size = 18))
 
 ggarrange(st_invasivemonth, envinvandstoolgraph, nrow = 2, labels = c("A", "B"))
