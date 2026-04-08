@@ -1,5 +1,5 @@
 ---
-title: "Extended-Spectrum Beta-Lactamase Klebsiella pneumoniae on a Malawian neonatal unit is amplified by neonates and transmitted by maternal hands, cots and ward surfaces: Figures"
+title: "Figures for Transmission of extended-spectrum Beta-lactamase Klebsiella pneumoniae on a Malawian neonatal unit: a clinical and genomic analysis of a prospective cohort study"
 output:
   word_document:
   html_document:
@@ -9,7 +9,7 @@ csl: the-lancet-infectious-diseases.csl
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE,
-                      dpi = 600)
+                      dpi = 300)
 ```
 
 ```{r intro, echo = FALSE, message = FALSE, warning = FALSE}
@@ -26,6 +26,7 @@ library(Gmisc)
 library(survival)
 library(igraph)
 library(statnet)
+library(svglite)
 theme_update(text = element_text(size = 16))
 theme_set(theme_bw())
 
@@ -139,8 +140,7 @@ dyads <- read.csv(here("data_markdown", "list_dyads.csv"))
 mat <- read.csv(here("data_markdown", "maternal_crf_qual.csv"))
 lolly_kleb_1 <- read.csv(here("data_markdown", "lolly_plot_1.csv"))
 lolly_kleb_2 <- read.csv(here("data_markdown", "lolly_plot_2.csv"))
-lab_all <- read.csv(here("data_markdown", "lab_long_complete_data_qual.csv")) %>%
-  select(-Date.Received)
+lab_all <- read.csv(here("data_markdown", "lab_long_complete_data_qual.csv"))
 all_surv <- read.csv(here("data_markdown", "neonatal_stool_survival_qual_all.csv"))
 ecoli_surv <- read.csv(here("data_markdown", "neonatal_stool_survival_qual_ecoli.csv"))
 entero_surv <- read.csv(here("data_markdown", "neonatal_stool_survival_qual_entero.csv"))
@@ -168,29 +168,27 @@ q_posterior_raw_msweep <- read.csv(here("data_markdown", "q_attribution_posterio
 source_posterior_msweep <- read.csv(here("data_markdown", "sources_attribution_posterior_msweep.csv"), header = FALSE)
 source_attribution_msweep <- read.csv(here("data_markdown", "source_attribution_norepeats_msweep.csv"))
 
-#genomic data
-reftran <- read.csv(here("data_markdown", "snps_metadata_wgs.csv"))
-reftran_mgems <- read.csv(here("data_markdown", "snps_metadata_mgems.csv"))
+reftran_withinv <- read.csv(here("data_markdown", "snp_matrix_clusters.csv"))
+reftran <- reftran_withinv %>%
+  filter(source.x != "Invasive",
+         source.y != "Invasive")
+reftran_mgems <- read.csv(here("data_markdown", "snps_data_mgems_updated.csv"))
 timediff <- as.matrix(read.csv(here("data_markdown", "timediff_cotnetwork.csv"), 
                      header = FALSE))
-neo_all_network_zero <- read.csv(here("data_markdown", "wgs_network_zero.csv"))
-neo_all_network_three <- read.csv(here("data_markdown", "wgs_network_three.csv"))
-neo_all_network_seven <- read.csv(here("data_markdown", "wgs_network_seven.csv"))
-neo_all_network_twenty <- read.csv(here("data_markdown", "wgs_network_twenty.csv"))
+neo_all_network_zero <- read.csv(here("data_markdown", "wgs_network_zero_updated.csv"))
+neo_all_network_three <- read.csv(here("data_markdown", "wgs_network_three_updated.csv"))
+neo_all_network_six <- read.csv(here("data_markdown", "wgs_network_six_updated.csv"))
+neo_all_network_twenty <- read.csv(here("data_markdown", "wgs_network_twenty_updated.csv"))
 neo_all_network_mgems_zero <- read.csv(here("data_markdown", "mgems_network_zero.csv"))
 neo_all_network_mgems_three <- read.csv(here("data_markdown", "mgems_network_three.csv"))
-neo_all_network_mgems_seven <- read.csv(here("data_markdown", "mgems_network_seven.csv"))
+neo_all_network_mgems_six <- read.csv(here("data_markdown", "wgs_network_mgems_six_updated.csv"))
 neo_all_network_mgems_twenty <- read.csv(here("data_markdown", "mgems_network_twenty.csv"))
-stmeta_wgs <- read.csv(here("data_markdown", "wgs_stdata_study_invasive.csv")) %>%
+invasive_wgs <- read.csv(here("data_markdown", "invasive_stdata_wgs_updated.csv")) %>%
   #actual sample dates have been jittered by + or - 14 days to preserve anonymity
   mutate(sample_date = ymd(sample_date))
-
-envboth <- read.csv(here("data_markdown", "wgs_st_invasive.csv"))
-envboth_stool <- read.csv(here("data_markdown", "wgs_st_stool.csv"))
-envboth_msweep <- read.csv(here("data_markdown", "msweep_st_invasive.csv"))
-envboth_stool_msweep <- read.csv(here("data_markdown", "msweep_st_stool.csv"))
-st_bymonth_prop <- read.csv(here("data_markdown", "st_ward_bymonth.csv")) %>%
-  mutate(month = ymd(month))
+stmeta_wgs <- read.csv(here("data_markdown", "wgs_stdata_study_invasive.csv"))
+envboth <- read.csv(here("data_markdown", "wgs_invasive_stool_updated.csv"))
+envboth_stool_msweep <- read.csv(here("data_markdown", "mgems_stool_updated.csv"))
 
 ```
 
@@ -488,50 +486,16 @@ acineto_surv_seven <- c(1 - acineto_survival$surv[which(acineto_survival$time ==
 
 
 ```{r st data, echo = FALSE, message = FALSE, warning = FALSE}
-#preparing st data and comparing sts causing invasive infection and stool colonisation to those in the environment
-inv_stmeta <- stmeta_wgs %>%
-  filter(source == "Invasive")
-
-stmeta_small <- stmeta_wgs %>%
-  filter(source != "Invasive")
-
-#numbers of sample sources
-numbers <- stmeta_wgs %>%
-  group_by(source) %>%
-  count()
-
-#number of isolates of each ST
-st_numbers <- stmeta_small %>% 
-  group_by(ST) %>% 
-  count() %>%
-  rename(total_n = n)
-
-st_inv <- inv_stmeta %>% 
-  group_by(ST) %>% 
-  count() %>%
-  filter(!is.na(ST))
-
-st_numbersinv <- st_inv %>%
-  rename(invasive_n = n) %>%
-  full_join(st_numbers, by = "ST") %>% 
-  replace_na(list(total_n = 0, invasive_n = 0))
-
-st_numbers_stool <- stmeta_wgs %>% 
-  filter(source == "Neonate's stool") %>% 
-  count(ST) %>%
-  rename(stool_n = n) %>%
-  full_join(st_numbersinv, by = "ST") %>% 
-  replace_na(list(total_n = 0, invasive_n = 0, stool_n = 0))
-
-#moderate correlation
-correlation_inv_stool <- cor.test(x = st_numbers_stool$stool_n, y = st_numbers_stool$invasive_n, method = "spearman")
 
 envnull <- envboth %>%
-  filter(arm == "null")
+  filter(arm == "null",
+         type == "Invasive infection")
 envbeforeinv <- envboth %>%
-  filter(arm == "test")
+  filter(arm == "test",
+         type == "Invasive infection")
 envafterinv <- envboth %>%
-  filter(arm == "after")
+  filter(arm == "after",
+         type == "Invasive infection")
 
 #median for the different timepoints 
 median_random <- median(envnull$prop)
@@ -542,12 +506,15 @@ wil.null.before <- wilcox.test(envnull$prop, envbeforeinv$prop)
 wil.before.after <- wilcox.test(envbeforeinv$prop, envafterinv$prop)
 wil.null.after <- wilcox.test(envnull$prop, envafterinv$prop)
 
-envnull_stool <- envboth_stool %>%
-  filter(arm == "null")
-envbeforestool <- envboth_stool %>%
-  filter(arm == "test")
-envafterstool <- envboth_stool %>%
-  filter(arm == "after")
+envnull_stool <- envboth %>%
+  filter(arm == "null",
+         type == "Stool colonisation")
+envbeforestool <- envboth %>%
+  filter(arm == "test",
+         type == "Stool colonisation")
+envafterstool <- envboth %>%
+  filter(arm == "after",
+         type == "Stool colonisation")
 
 #median for the different timepoints 
 median_randomstool <- median(envnull_stool$prop)
@@ -560,26 +527,10 @@ wil.null.after.stool <- wilcox.test(envnull_stool$prop, envafterstool$prop)
 
 ```
 
+
+
+
 ```{r invasive msweep, echo = FALSE, fig.dim = c(10, 10), warning = FALSE, message = FALSE}
-#preparing st data and comparing sts causing invasive infection and stool colonisation to those in the environment - msweep
-envnull_msweep <- envboth_msweep %>%
-  filter(arm == "null")
-
-envbeforeinv_msweep <- envboth_msweep %>%
-  filter(arm == "test")
-
-envafterinv_msweep <- envboth_msweep %>%
-  filter(arm == "after")
-
-#median for the different timepoints 
-median_random_msweep <- median(envnull_msweep$prop)
-median_before_msweep <- median(envbeforeinv_msweep$prop)
-median_after_msweep <- median(envafterinv_msweep$prop)
-
-wil.null.before_msweep <- wilcox.test(envnull_msweep$prop, envbeforeinv_msweep$prop)
-wil.before.after_msweep <- wilcox.test(envbeforeinv_msweep$prop, envafterinv_msweep$prop)
-wil.null.after_msweep <- wilcox.test(envnull_msweep$prop, envafterinv_msweep$prop)
-
 envnull_stool_msweep <- envboth_stool_msweep %>%
   filter(arm == "null")
 
@@ -837,12 +788,11 @@ refedges_small <- data.frame(node1 = baby_closetime$Lane.y,
   mutate(dyad_clust = case_when(dyad1 == dyad2 ~ 3,
                                 TRUE ~ 30))
 
-#could change this to being st15stool
 refnodesy_small <- baby_closetime %>%
   select(Lane.y, source.y, dyad.y, sample_interval) 
 
 refnodesx_small <- baby_closetime %>%
-  select(Lane.x, source.x, dyad.x, , sample_interval) %>%
+  select(Lane.x, source.x, dyad.x, sample_interval) %>%
   rename(Lane.y = Lane.x, source.y = source.x, dyad.y = dyad.x)
 
 refnodes_small <- rbind(refnodesy_small, refnodesx_small) %>%
@@ -908,7 +858,7 @@ transsources <- baby_closetime %>%
                                    source.y == "Neonate's cot" ~ "Cots",
                                    source.y == "Mother's hands"~ "Mother's hands",
                                    source.y == "Swaddling cloth" ~ "Swaddling cloth",
-                                   TRUE ~ source.y)) %>%
+                                   TRUE ~ source.y))%>%
   count(sourceprecise) %>%
   arrange(desc(n))
 
@@ -924,7 +874,7 @@ envsources <- baby_closetime %>%
 #creating a network model
 
 #this creates the baseline network, that is a network of all neonates connected
-neo_all_network <- neo_all_network_seven
+neo_all_network <- neo_all_network_six
 
 neo_connections <- neo_all_network %>%
   select(from, to)
@@ -1138,7 +1088,7 @@ transsources_mgems <- baby_closetime_mgems %>%
 
 ```{r ergm mgems, echo = FALSE, fig.dim = c(10, 10), warning = FALSE, message = FALSE}
 #network mgems
-neo_mgems <- neo_all_network_mgems_seven %>%
+neo_mgems <- neo_all_network_mgems_six %>%
   select(from, to, mgemslink, ST.x)
 
 mgems_network <- as.network(neo_mgems)
@@ -1470,28 +1420,38 @@ three_micro
 ```
 
 
-```{r figure 2, echo = FALSE, fig.dim = c(10, 10), fig.cap = "Figure 2.", warning = FALSE, message = FALSE}
+```{r figure 2, echo = FALSE, fig.dim = c(10, 14), fig.cap = "Figure 2.", warning = FALSE, message = FALSE}
 
-st_invasivemonth <- ggplot(inv_stmeta) +
-  geom_histogram(aes(x = sample_date, fill = ST), bins = 60, colour = "black") +
-  geom_line(data = st_bymonth_prop, 
-            aes(x = month, y = prop_numsamples * 20, colour = ST), lwd = 1, alpha = 0.5) +
-  facet_wrap(vars(ST), ncol = 1)   +
-  scale_y_continuous(
-    limits = c(0, 4), 
-    breaks = c(0, 4),
-    # Features of the first axis
-    name = "Invasive cases",
-    # Add a second axis and specify its features
-    sec.axis = sec_axis( trans=~./20, 
-                         name="Proportion of isolates per month of ST",
-                         breaks = c(0, 0.1),
-                         labels = c(0, 0.1))
-  ) +
+invasive_cluster_snps <- reftran_withinv %>% 
+  filter(source.x == "Invasive", snpdist <= 6) %>% 
+  group_by(Lane.x) %>% 
+  summarise(n = n(), mean = mean(snpdist), median = median(snpdist))
+
+snp_invasive <- ggplot(invasive_wgs) +
+  geom_histogram(data = invasive_wgs %>% filter(source != "Invasive"), 
+                                                    aes(x = sample_date, y = after_stat(count), colour = ST), alpha = 0, bins = 15) +
+  geom_histogram(data = invasive_wgs %>% filter(source == "Invasive"), 
+                                                    aes(x = sample_date, y = after_stat(count * 5), fill = ST), colour = "black", alpha = 0.8, bins = 30) +
+  facet_wrap(vars(cluster), ncol = 1,
+             scales = "free_y")   +
   theme(axis.text.y = element_text(size = 10),
         strip.background = element_blank(),
         strip.text.x = element_blank(),
-        text = element_text(size = 18)) +
+        text = element_text(size = 18),
+        panel.spacing = unit(0.7, "lines")) +
+  scale_y_continuous(
+    # Features of the first axis
+    name = "Non-invasive ward isolates",
+    # Add a second axis and specify its features
+    sec.axis = sec_axis( trans=~./5, 
+                         name="Invasive isolates",
+                         breaks = function(x) range(x),
+                         labels = scales::label_number(accuracy = 1)
+    ),
+    breaks = function(x) range(x),
+    labels = scales::label_number(accuracy = 1)
+  ) +
+  guides(color = "none") +
   xlab("Date")
 
 label_stinv <- c("null" = "Random",
@@ -1499,11 +1459,9 @@ label_stinv <- c("null" = "Random",
                  "after" = "After")
 cols = c("Median" = "black")
 
-envinvandstool <- rbind(envboth, envboth_stool)
-
 stgraph_cols <- c("null" = "mediumblue", "test" = "red", "after" = "seagreen")
 
-envinvandstoolgraph <- ggplot(envinvandstool %>% 
+envinvandstoolgraph <- ggplot(envboth %>% 
                                 mutate(arm = fct_relevel(arm, "null", "test", "after"))) +
   geom_histogram(aes(x = prop, fill = arm), alpha = 0.5, bins = 60) +
   geom_vline(aes(xintercept = median), lwd = 1) +
@@ -1525,9 +1483,8 @@ envinvandstoolgraph <- ggplot(envinvandstool %>%
   #scale_colour_manual(name="here",values=cols) +
   theme(text = element_text(size = 18))
 
-ggarrange(st_invasivemonth, envinvandstoolgraph, nrow = 2, labels = c("A", "B"))
-
-
+figure_two <- ggarrange(snp_invasive, envinvandstoolgraph, nrow = 2, labels = c("A", "B"))
+figure_two
 ```
 
 
@@ -1538,7 +1495,7 @@ ggarrange(st_invasivemonth, envinvandstoolgraph, nrow = 2, labels = c("A", "B"))
 
 
 
-```{r figure 3, echo = FALSE, message = FALSE, fig.dim = c(14, 14), fig.cap = "Figure 3."}
+```{r figure 3, echo = FALSE, message = FALSE, fig.dim = c(10, 14), fig.cap = "Figure 3."}
 
 CE_cols <- c("Cots" = "steelblue1",
              "Ward surfaces" = "hotpink1",
@@ -1561,6 +1518,12 @@ source_cols <- c("Neonate's cot" = "steelblue1",
              "Mother's hands" = "seagreen1",
              "Neonate's stool" = "yellow2",
              "Swaddling cloth" = "purple1")
+
+snpdist_graph <- ggplot(reftran) +
+  geom_density(aes(snpdist), lwd = 0.5, colour = "black", fill = "lightgray", alpha = 0.6) +
+  theme(text = element_text(size = 20)) +
+  labs(x = "Pairwise SNP distance",
+       y = "Density")
 
 contributions_graph <- ggplot(rel_contributions) +
   geom_violin(aes(x = source, y = value, fill = source), scale = "width", alpha = 1) +
@@ -1596,15 +1559,15 @@ density_network_generator <- function(){
                               vertex.col = vertex_cols)
 }
 
-
-density_panel <- ggarrange(contributions_graph, density_network_generator,
-          nrow = 1, ncol = 2, labels = c("A", "B")
+density_panel <- ggarrange(snpdist_graph, density_network_generator,
+          nrow = 1, ncol = 2, labels = c("B", "C")
           )
 
-density_panel2 <- ggarrange(density_panel,
+density_panel2 <- ggarrange(contributions_graph,
+                            density_panel,
                             density_graph, 
-                            nrow = 2, ncol = 1,
-                            labels = c("", "C"))
+                            nrow = 3, ncol = 1,
+                            labels = c("A", "", "D"))
 
 density_panel2
 
@@ -1663,13 +1626,12 @@ networks <- ggarrange(entire_network_function, cot_network_function,
                       nrow = 1, ncol = 2, labels = c("A", "B"))
 
 
- ggarrange(networks, trans_numbers,
+figure_four <- ggarrange(networks, trans_numbers,
            nrow = 2, ncol = 1, labels = c("", "C"),
            heights = c(3, 1))
+figure_four
 
 ```
-
-
 
 ## Supplementary Figures
 
@@ -2358,7 +2320,7 @@ ggplot(baby_notime %>% filter(Lane.x %in% transmission_list)) +
 ```{r fit metrics, echo = FALSE, message = FALSE, fig.cap = "Supplementary Figure 8.", dpi=600}
 
 par(mfrow = c(2, 2))
-plot(gof_stats.neoabx, main = '')
+#plot(gof_stats.neoabx, main = '')
 
 ```
 
@@ -2683,27 +2645,28 @@ all_neo_netcov_wt_zero <- all_neo_netcov_zero %>%
 
 #setting attributes
 snp_network_zero <- as.network(neo_snp_zero)
-not_snp_zero <- which(get.edge.attribute(snp_network_zero, "snplink") == FALSE)
-delete.edges(snp_network_zero, not_snp_zero)
-set.vertex.attribute(snp_network_zero, "o2", all_neo_netcov_o2_zero$o2)
-set.vertex.attribute(snp_network_zero, "wt", all_neo_netcov_wt_zero$wt)
-set.vertex.attribute(snp_network_zero, "neoabx", all_neo_netcov_neoabx_zero$neoabx)
-cot_network_zero <- as.network(neo_cot_zero)
-not_cot_zero <- which(get.edge.attribute(cot_network_zero, "cot") == FALSE)
-delete.edges(cot_network_zero, not_cot_zero)
+#there are no snplinks at zero snps so the network analysis is not run
+#not_snp_zero <- which(get.edge.attribute(snp_network_zero, "snplink") == FALSE)
+#delete.edges(snp_network_zero, not_snp_zero)
+#set.vertex.attribute(snp_network_zero, "o2", all_neo_netcov_o2_zero$o2)
+#set.vertex.attribute(snp_network_zero, "wt", all_neo_netcov_wt_zero$wt)
+#set.vertex.attribute(snp_network_zero, "neoabx", all_neo_netcov_neoabx_zero$neoabx)
+#cot_network_zero <- as.network(neo_cot_zero)
+#not_cot_zero <- which(get.edge.attribute(cot_network_zero, "cot") == FALSE)
+#delete.edges(cot_network_zero, not_cot_zero)
 
-network.model.neoabx.zero <- ergm(snp_network_zero ~ edges + edgecov(cot_network_zero) + nodecov('neoabx'))
+#network.model.neoabx.zero <- ergm(snp_network_zero ~ edges + edgecov(cot_network_zero) + nodecov('neoabx'))
 
-gof_stats.neoabx.zero <- gof(network.model.neoabx.zero, GOF = ~idegree + odegree + distance + model)
+#gof_stats.neoabx.zero <- gof(network.model.neoabx.zero, GOF = ~idegree + odegree + distance + model)
 
-pval_formatted_zero <- c(as.character(format.pval(summary(network.model.neoabx.zero)$coefficients[,5], digits = 2)))
+#pval_formatted_zero <- c(as.character(format.pval(summary(network.model.neoabx.zero)$coefficients[,5], digits = 2)))
 
-network_coef_zero <- data.frame(Factor = c("Edges", "Cots", "Neonatal antibiotics"), 
-                            "Log-odds"= round(coef((network.model.neoabx.zero)), digits = 2),
-                            Probability = c(signif(expit(coef((network.model.neoabx.zero)))[1], digits = 2),
-                                            signif(expit(coef((network.model.neoabx.zero))[1] + coef((network.model.neoabx.zero)))[2], digits = 2),
-                                            signif(expit(coef((network.model.neoabx.zero))[1] + coef((network.model.neoabx.zero)))[3], digits = 2)),
-                            "p value" = pval_formatted_zero)
+#network_coef_zero <- data.frame(Factor = c("Edges", "Cots", "Neonatal antibiotics"), 
+#                            "Log-odds"= round(coef((network.model.neoabx.zero)), digits = 2),
+#                            Probability = c(signif(expit(coef((network.model.neoabx.zero)))[1], digits = 2),
+#                                            signif(expit(coef((network.model.neoabx.zero))[1] + coef((network.model.neoabx.zero)))[2], digits = 2),
+#                                            signif(expit(coef((network.model.neoabx.zero))[1] + coef((network.model.neoabx.zero)))[3], digits = 2)),
+#                            "p value" = pval_formatted_zero)
 
 neo_connections_three <- neo_all_network_three %>%
   select(from, to)
@@ -2959,8 +2922,65 @@ network_coef_mgems_twenty <- data.frame(Factor = c("Edges", "Cots", "Neonatal an
 
 ```
 
+```{figures, echo = FALSE, eval = FALSE}
+
+#figure 1
+ggsave(filename = "cres_model_figure_one_combined.svg", plot = three_micro, width = 12, height = 16, units = "in")
+ggsave(filename = "cres_model_figure_one_a.svg", plot = all_micro_plot, width = 12, height = 16, units = "in")
+ggsave(filename = "cres_model_figure_one_b.svg", plot = lolly_kleb_plot, width = 12, height = 16, units = "in")
+ggsave(filename = "cres_model_figure_one_c.svg", plot = violin_plot, width = 12, height = 16, units = "in")
+
+#figure 2
+ggsave(filename = "cres_model_figure_two_combined.svg", plot = figure_two, width = 12, height = 16, units = "in")
+ggsave(filename = "cres_model_figure_two_a.svg", plot = snp_invasive, width = 12, height = 16, units = "in")
+ggsave(filename = "cres_model_figure_two_b.svg", plot = envinvandstoolgraph, width = 12, height = 16, units = "in")
+
+#figure 3
+ggsave(filename = "cres_model_figure_three_combined.svg", plot = density_panel2, width = 12, height = 16, units = "in")
+ggsave(filename = "cres_model_figure_three_a.svg", plot = contributions_graph, width = 12, height = 16, units = "in")
+ggsave(filename = "cres_model_figure_three_b.svg", plot = snpdist_graph, width = 12, height = 16, units = "in")
+svglite("cres_model_figure_three_c.svg", width = 12, height = 16)
+plot(density_network, edge.lwd = "prop2", 
+                              label = network.vertex.names(density_network), 
+                              vertex.cex = 3,
+                              label.cex = 1.5,
+                              label.pos = 1,
+                              edge.col = "#BBBBBB",
+                              vertex.col = vertex_cols)
+dev.off()
+ggsave(filename = "cres_model_figure_three_d.svg", plot = density_graph, width = 12, height = 16, units = "in")
+
+#figure 4
+ggsave(filename = "cres_model_figure_four_combined.svg", plot = figure_four, width = 12, height = 16, units = "in")
+svglite("cres_model_figure_four_a.svg", width = 12, height = 16)
+plot(refnetwork,
+     vertex.shape = "fcircle", 
+     vertex.frame.width = 3,
+     vertex.size = 6, 
+     vertex.label = "", 
+     edge.arrow.size = 1.5, 
+     edge.arrow.width = 1,
+     edge.width = 2) 
+dev.off()
+svglite("cres_model_figure_four_b.svg", width = 12, height = 16)
+plot(both_network, edge.lwd = "cot", edge.col = "ST", mode = "circle")
+legend("topright",
+       title = "ST",
+       legend=c("ST15", "ST2793", "ST340 & ST15", "ST35", "ST307", "No transmission link"),
+       col=c("red", "blue", "gold1", "green", "pink", "snow2"),
+       cex = 1.2,
+       lty = 1,
+       lwd = 3)
+dev.off()
+ggsave(filename = "cres_model_figure_four_c.svg", plot = trans_numbers, width = 12, height = 6, units = "in")
+
+
+
+```
 
 ```{r end, echo = FALSE}
 
 
 ```
+
+
