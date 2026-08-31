@@ -232,6 +232,9 @@ age_med <- quantile(labour$recruit_day, 1/2)
 #don't forget to write about outliers in the text
 age_outliers <- labour$recruit_day[labour$recruit_day > 5]
 #maternal hiv
+#mothers are included multiple times in the case of twins or triplets - removing the duplicates
+mat <- mat %>%
+  distinct(Mat, .keep_all = TRUE)
 hiv_y <- sum(mat$mathiv == 1, na.rm = TRUE)
 hiv_n <- sum(mat$mathiv == 0, na.rm = TRUE)
 hiv_uk <- sum(is.na(mat$mathiv))
@@ -397,6 +400,7 @@ lab_timepoints <- lab_all %>%
                              Specimen.ID == "CIS15EH1G" ~ "Mother Stool",
                              Specimen.ID == "CIS15DH1G" ~ "Mother Stool",
                              Source == "Other" ~ "Ward surfaces",
+                             Source == "Staff Hand" ~ "Ward surfaces",
                              TRUE ~ Source)) %>%
   filter(Source != "Kitchen") %>%
   mutate(present = 1) %>%
@@ -449,12 +453,78 @@ lab_allorganisms <- lab_timepoints %>%
                               "Mother Hand",
                               "Chitenje",
                               "Cot",
-                              "Staff Hand",
                               "Ward surfaces"))
 
 lab_klebandesbl <- lab_allorganisms %>%
   filter(organism == "esbl" |
            organism == "kleb")
+
+
+fisher_comparison <- function(source, org1, org2){
+  data <- lab_allorganisms %>%
+    filter(Source == source,
+           organism == org1 | organism == org2)
+  fisher <- chisq.test(matrix(c(data$n, data$total - data$n), nrow = 2))
+  return(fisher)
+}
+
+fisher_comparison <- function(source, org1, org2){
+  data <- lab_allorganisms %>%
+    filter(Source == source,
+           organism == org1 | organism == org2) %>%
+    arrange(factor(organism, levels = c(org1, org2)))
+
+  
+  # Build matrix
+  mat <- matrix(c(data$n, data$total - data$n), nrow = 2,
+                dimnames = list(
+                  Organism = c(org1, org2),
+                  Outcome = c("Event", "No event")
+                ))
+  
+  # Fisher's exact test
+  fisher <- fisher.test(mat)
+  
+  # Proportions and percentages
+  prop1 <- data$n[1] / data$total[1]
+  prop2 <- data$n[2] / data$total[2]
+  
+  # Risk difference and 95% CI
+  rd <- prop1 - prop2
+  se <- sqrt((prop1 * (1 - prop1) / data$total[1]) + 
+             (prop2 * (1 - prop2) / data$total[2]))
+  lower <- rd - 1.96 * se
+  upper <- rd + 1.96 * se
+  
+  # Compile output
+  result <- list(
+    matrix = mat,
+    percentages = data.frame(
+      organism = c(org1, org2),
+      n = data$n,
+      total = data$total,
+      percent = round(c(prop1, prop2) * 100, 1)
+    ),
+    risk_difference = data.frame(
+      rd_percent = round(rd * 100, 1),
+      lower_95ci = round(lower * 100, 1),
+      upper_95ci = round(upper * 100, 1)
+    ),
+    odds_ratio = round(fisher$estimate, 3),
+    or_ci = round(fisher$conf.int, 3),
+    p_value = fisher$p.value
+  )
+  
+  return(result)
+}
+
+neo_fisher <- fisher_comparison("Child Stool", "kleb", "ecoli")
+chit_fisher <- fisher_comparison("Chitenje", "acineto", "kleb")
+cot_fisher <- fisher_comparison("Cot", "acineto", "kleb")
+hand_fisher <- fisher_comparison("Mother Hand", "acineto", "kleb")
+mat_fisher <- fisher_comparison("Mother Stool", "ecoli", "kleb")
+surf_fisher <- fisher_comparison("Ward surfaces", "acineto", "kleb")
+
 
 ```
 
@@ -502,6 +572,11 @@ median_random <- median(envnull$prop)
 median_before <- median(envbeforeinv$prop)
 median_after <- median(envafterinv$prop)
 
+#quantile for the different timepoints 
+quantile_random <- quantile(envnull$prop)
+quantile_before <- quantile(envbeforeinv$prop)
+quantile_after <- quantile(envafterinv$prop)
+
 wil.null.before <- wilcox.test(envnull$prop, envbeforeinv$prop)
 wil.before.after <- wilcox.test(envbeforeinv$prop, envafterinv$prop)
 wil.null.after <- wilcox.test(envnull$prop, envafterinv$prop)
@@ -520,6 +595,11 @@ envafterstool <- envboth %>%
 median_randomstool <- median(envnull_stool$prop)
 median_beforestool <- median(envbeforestool$prop)
 median_afterstool <- median(envafterstool$prop)
+
+#iqr for the different timepoints
+quantile_randomstool <- quantile(envnull_stool$prop)
+quantile_beforestool <- quantile(envbeforestool$prop)
+quantile_afterstool <- quantile(envafterstool$prop)
 
 wil.null.before.stool <- wilcox.test(envnull_stool$prop, envbeforestool$prop)
 wil.before.after.stool <- wilcox.test(envbeforestool$prop, envafterstool$prop)
@@ -544,6 +624,11 @@ envafterstool_msweep <- envboth_stool_msweep %>%
 median_randomstool_msweep <- median(envnull_stool_msweep$prop)
 median_beforestool_msweep <- median(envbeforestool_msweep$prop)
 median_afterstool_msweep <- median(envafterstool_msweep$prop)
+
+#quantile for the different timepoints 
+quantile_randomstool_msweep <- quantile(envnull_stool_msweep$prop)
+quantile_beforestool_msweep <- quantile(envbeforestool_msweep$prop)
+quantile_afterstool_msweep <- quantile(envafterstool_msweep$prop)
 
 wil.null.before.stool_msweep <- wilcox.test(envnull_stool_msweep$prop, envbeforestool_msweep$prop)
 wil.before.after.stool_msweep <- wilcox.test(envbeforestool_msweep$prop, envafterstool_msweep$prop)
@@ -973,6 +1058,12 @@ network_coef <- data.frame(Factor = c("Edges", "Cots", "Neonatal antibiotics"),
                             Probability = c(signif(expit(coef((network.model.neoabx)))[1], digits = 2),
                                             signif(expit(coef((network.model.neoabx))[1] + coef((network.model.neoabx)))[2], digits = 2),
                                             signif(expit(coef((network.model.neoabx))[1] + coef((network.model.neoabx)))[3], digits = 2)),
+                           CI_high = c(signif(expit(coef((network.model.neoabx)) + summary(network.model.neoabx)$coef[, "Std. Error"])[1], digits = 2),
+                                            signif(expit(coef((network.model.neoabx))[1] + coef((network.model.neoabx)) + summary(network.model.neoabx)$coef[, "Std. Error"])[2], digits = 2),
+                                            signif(expit(coef((network.model.neoabx))[1] + coef((network.model.neoabx)) + summary(network.model.neoabx)$coef[, "Std. Error"])[3], digits = 2)),
+                           CI_low = c(signif(expit(coef((network.model.neoabx)) - summary(network.model.neoabx)$coef[, "Std. Error"])[1], digits = 2),
+                                            signif(expit(coef((network.model.neoabx))[1] + coef((network.model.neoabx)) - summary(network.model.neoabx)$coef[, "Std. Error"])[2], digits = 2),
+                                            signif(expit(coef((network.model.neoabx))[1] + coef((network.model.neoabx)) - summary(network.model.neoabx)$coef[, "Std. Error"])[3], digits = 2)),
                             "p value" = pval_formatted)
 
 ```
@@ -1328,7 +1419,45 @@ refnlinks_network <- refnlinks %>%
 
 ```
 
-```{r new figure 1, fig.cap = "Figure 1.", echo = FALSE, warning = FALSE, fig.dim = c(14, 14)}
+```{r Figure 1, echo = FALSE, warning = FALSE, fig.dim = c(10, 10), fig.cap =  "Figure 1."}
+
+exclusion_total <- paste("Participants screened", num_screen, sep = "\n")
+exclusion_screenfailure <- paste("Participants excluded on screening", num_screen - num_recruit, sep = "\n")
+exclusion_recruited <- paste("Participants recruited", num_recruit, sep = "\n")
+exclusion_inadequate <- paste("Participants with inadequate samples or data", num_recruit - 90, sep = "\n")
+exclusion_modelling <- paste("Participants included in modelling analysis",
+                 90, sep = "\n")
+
+flowexclusion_total <- boxGrob(exclusion_total,
+                      x = 0.5,
+                      y = 0.8)
+flowexclusion_screenfailure <- boxGrob(exclusion_screenfailure,
+                      x = 0.8,
+                      y = 0.7)
+flowexclusion_recruited <- boxGrob(exclusion_recruited,
+                          x = coords(flowexclusion_total)$x,
+                          y = 0.6)
+flowexclusion_inadequate <- boxGrob(exclusion_inadequate,
+                          x = coords(flowexclusion_screenfailure)$x,
+                          y = 0.5)
+flowexclusion_modelling <- boxGrob(exclusion_modelling,
+                          x = coords(flowexclusion_total)$x,
+                          y = 0.4)
+
+connectGrob(flowexclusion_total, flowexclusion_recruited, "vertical")
+connectGrob(flowexclusion_total, flowexclusion_screenfailure, "-")
+connectGrob(flowexclusion_recruited, flowexclusion_modelling, "vertical")
+connectGrob(flowexclusion_recruited, flowexclusion_inadequate, "-")
+
+flowexclusion_total
+flowexclusion_recruited
+flowexclusion_screenfailure
+flowexclusion_modelling
+flowexclusion_inadequate
+```
+
+
+```{r new figure 2, fig.cap = "Figure 2.", echo = FALSE, warning = FALSE, fig.dim = c(14, 14)}
 
 kleb_cols <- c(kleb = "royalblue2", esbl = "gold1")
 
@@ -1356,7 +1485,6 @@ all_micro_plot <- ggplot(data = lab_klebandesbl, aes(x = Source, y = prop, fill 
                               "Maternal hand",
                               "Swaddling cloth",
                               "Cot",
-                              "Staff hand",
                               "Ward surfaces"))
 
 #adding in the bc data
@@ -1418,83 +1546,6 @@ three_micro <- ggarrange(two_micro, violin_plot,
 three_micro
 
 ```
-
-
-```{r figure 2, echo = FALSE, fig.dim = c(10, 14), fig.cap = "Figure 2.", warning = FALSE, message = FALSE}
-
-invasive_cluster_snps <- reftran_withinv %>% 
-  filter(source.x == "Invasive", snpdist <= 6) %>% 
-  group_by(Lane.x) %>% 
-  summarise(n = n(), mean = mean(snpdist), median = median(snpdist))
-
-snp_invasive <- ggplot(invasive_wgs) +
-  geom_histogram(data = invasive_wgs %>% filter(source != "Invasive"), 
-                                                    aes(x = sample_date, y = after_stat(count), colour = ST), alpha = 0, bins = 15) +
-  geom_histogram(data = invasive_wgs %>% filter(source == "Invasive"), 
-                                                    aes(x = sample_date, y = after_stat(count * 5), fill = ST), colour = "black", alpha = 0.8, bins = 30) +
-  facet_wrap(vars(cluster), ncol = 1,
-             scales = "free_y")   +
-  theme(axis.text.y = element_text(size = 10),
-        strip.background = element_blank(),
-        strip.text.x = element_blank(),
-        text = element_text(size = 18),
-        panel.spacing = unit(0.7, "lines")) +
-  scale_y_continuous(
-    # Features of the first axis
-    name = "Non-invasive ward isolates",
-    # Add a second axis and specify its features
-    sec.axis = sec_axis( trans=~./5, 
-                         name="Invasive isolates",
-                         breaks = function(x) range(x),
-                         labels = scales::label_number(accuracy = 1)
-    ),
-    breaks = function(x) range(x),
-    labels = scales::label_number(accuracy = 1)
-  ) +
-  guides(color = "none") +
-  xlab("Date")
-
-label_stinv <- c("null" = "Random",
-                 "test" = "Before",
-                 "after" = "After")
-cols = c("Median" = "black")
-
-stgraph_cols <- c("null" = "mediumblue", "test" = "red", "after" = "seagreen")
-
-envinvandstoolgraph <- ggplot(envboth %>% 
-                                mutate(arm = fct_relevel(arm, "null", "test", "after"))) +
-  geom_histogram(aes(x = prop, fill = arm), alpha = 0.5, bins = 60) +
-  geom_vline(aes(xintercept = median), lwd = 1) +
-  facet_grid(rows = vars(arm),
-             cols = vars(type),
-             labeller = labeller(arm = label_stinv)) +
-  #facet_wrap(vars(arm), ncol = 1,
-  #           labeller = labeller(arm = label_stinv)) +
-  labs(x = "Proportion of isolated K. pneumoniae\nthat are invasive or stool ST",
-       y = "Density",
-       fill = "Timepoint in relation\nto invasive/stool isolate") +
-  scale_fill_manual(labels = c("Random",
-                                 "Before",
-                                 "After"),
-                      breaks = c("null",
-                                 "test",
-                                 "after"),
-                    values = stgraph_cols) +
-  #scale_colour_manual(name="here",values=cols) +
-  theme(text = element_text(size = 18))
-
-figure_two <- ggarrange(snp_invasive, envinvandstoolgraph, nrow = 2, labels = c("A", "B"))
-figure_two
-```
-
-
-
-
-
-
-
-
-
 ```{r figure 3, echo = FALSE, message = FALSE, fig.dim = c(10, 14), fig.cap = "Figure 3."}
 
 CE_cols <- c("Cots" = "steelblue1",
@@ -1504,10 +1555,9 @@ CE_cols <- c("Cots" = "steelblue1",
              "Other neonates" = "yellow2",
              "Swaddling cloth" = "purple1")
 
-vertex_cols <- c(
-                  "Swaddling cloth" = "purple1",
-                  "Neonate's stool" = "yellow2",
+vertex_cols <- c("Neonate's stool" = "yellow2",
                   "Neonate's cot" = "steelblue1",
+                  "Swaddling cloth" = "purple1",
                   "Ward surfaces" = "hotpink1",
                   "Mother's hands" = "seagreen1",
                   "Mother's stool" = "orange1")
@@ -1573,7 +1623,84 @@ density_panel2
 
 ```
 
-```{r figure 4, echo = FALSE, warning = FALSE, fig.cap = "Figure 4.", fig.dim = c(14, 14)}
+```{r figure 4, echo = FALSE, fig.dim = c(10, 14), fig.cap = "Figure 4.", warning = FALSE, message = FALSE}
+
+invasive_cluster_snps <- reftran_withinv %>% 
+  filter(source.x == "Invasive", snpdist <= 6) %>% 
+  group_by(Lane.x) %>% 
+  summarise(n = n(), mean = mean(snpdist), median = median(snpdist), sd = sd(snpdist))
+
+snp_invasive <- ggplot(invasive_wgs) +
+  geom_histogram(data = invasive_wgs %>% filter(source != "Invasive"), 
+                                                    aes(x = sample_date, y = after_stat(count), colour = ST), alpha = 0, bins = 15) +
+  geom_histogram(data = invasive_wgs %>% filter(source == "Invasive"), 
+                                                    aes(x = sample_date, y = after_stat(count * 5), fill = ST), colour = "black", alpha = 0.8, bins = 30) +
+  facet_wrap(vars(cluster), ncol = 1,
+             scales = "free_y")   +
+  theme(axis.text.y = element_text(size = 10),
+        strip.background = element_blank(),
+        strip.text.x = element_blank(),
+        text = element_text(size = 18),
+        panel.spacing = unit(0.7, "lines")) +
+  scale_y_continuous(
+    # Features of the first axis
+    name = "Non-invasive ward isolates",
+    # Add a second axis and specify its features
+    sec.axis = sec_axis( trans=~./5, 
+                         name="Invasive isolates",
+                         breaks = function(x) range(x),
+                         labels = scales::label_number(accuracy = 1)
+    ),
+    breaks = function(x) range(x),
+    labels = scales::label_number(accuracy = 1)
+  ) +
+  guides(color = "none") +
+  xlab("Date")
+
+label_stinv <- c("null" = "Random",
+                 "test" = "Before",
+                 "after" = "After")
+cols = c("Median" = "black")
+
+stgraph_cols <- c("null" = "mediumblue", "test" = "red", "after" = "seagreen")
+
+envinvandstoolgraph <- ggplot(envboth %>% 
+                                mutate(arm = fct_relevel(arm, "null", "test", "after"))) +
+  geom_histogram(aes(x = prop, fill = arm), alpha = 0.5, bins = 60) +
+  geom_vline(aes(xintercept = median), lwd = 1) +
+  facet_grid(rows = vars(arm),
+             cols = vars(type),
+             labeller = labeller(arm = label_stinv)) +
+  #facet_wrap(vars(arm), ncol = 1,
+  #           labeller = labeller(arm = label_stinv)) +
+  labs(x = "Proportion of isolated K. pneumoniae\nthat are invasive or stool ST",
+       y = "Density",
+       fill = "Timepoint in relation\nto invasive/stool isolate") +
+  scale_fill_manual(labels = c("Random",
+                                 "Before",
+                                 "After"),
+                      breaks = c("null",
+                                 "test",
+                                 "after"),
+                    values = stgraph_cols) +
+  #scale_colour_manual(name="here",values=cols) +
+  theme(text = element_text(size = 18))
+
+figure_four <- ggarrange(snp_invasive, envinvandstoolgraph, nrow = 2, labels = c("A", "B"))
+figure_four
+```
+
+
+
+
+
+
+
+
+
+
+
+```{r figure 5, echo = FALSE, warning = FALSE, fig.cap = "Figure 5.", fig.dim = c(14, 14)}
 
 #adding it to igraph
 add.vertex.shape("fcircle", clip=igraph.shape.noclip,
@@ -1626,16 +1753,16 @@ networks <- ggarrange(entire_network_function, cot_network_function,
                       nrow = 1, ncol = 2, labels = c("A", "B"))
 
 
-figure_four <- ggarrange(networks, trans_numbers,
+figure_five <- ggarrange(networks, trans_numbers,
            nrow = 2, ncol = 1, labels = c("", "C"),
            heights = c(3, 1))
-figure_four
+figure_five
 
 ```
 
 ## Supplementary Figures
 
-```{r map, echo = FALSE, message = FALSE, warning = FALSE, fig.cap = "Supplementary Figure 1.", fig.dim = c(10, 7) }
+```{r map, echo = FALSE, message = FALSE, warning = FALSE, fig.cap = "Supplementary Figure", fig.dim = c(10, 7) }
 
 #to scale dimensions ----
 #outer dimensions of wall
@@ -1824,44 +1951,8 @@ ggarrange(mapward, mapswab, labels = c("A", "B"))
 ```
 
 
-```{r Supplementary flow chart, echo = FALSE, warning = FALSE, fig.dim = c(10, 10), fig.cap =  "Supplementary Figure 2."}
 
-exclusion_total <- paste("Participants screened", num_screen, sep = "\n")
-exclusion_screenfailure <- paste("Participants excluded on screening", num_screen - num_recruit, sep = "\n")
-exclusion_recruited <- paste("Participants recruited", num_recruit, sep = "\n")
-exclusion_inadequate <- paste("Participants with inadequate samples or data", num_recruit - 90, sep = "\n")
-exclusion_modelling <- paste("Participants included in modelling analysis",
-                 90, sep = "\n")
-
-flowexclusion_total <- boxGrob(exclusion_total,
-                      x = 0.5,
-                      y = 0.8)
-flowexclusion_screenfailure <- boxGrob(exclusion_screenfailure,
-                      x = 0.8,
-                      y = 0.7)
-flowexclusion_recruited <- boxGrob(exclusion_recruited,
-                          x = coords(flowexclusion_total)$x,
-                          y = 0.6)
-flowexclusion_inadequate <- boxGrob(exclusion_inadequate,
-                          x = coords(flowexclusion_screenfailure)$x,
-                          y = 0.5)
-flowexclusion_modelling <- boxGrob(exclusion_modelling,
-                          x = coords(flowexclusion_total)$x,
-                          y = 0.4)
-
-connectGrob(flowexclusion_total, flowexclusion_recruited, "vertical")
-connectGrob(flowexclusion_total, flowexclusion_screenfailure, "-")
-connectGrob(flowexclusion_recruited, flowexclusion_modelling, "vertical")
-connectGrob(flowexclusion_recruited, flowexclusion_inadequate, "-")
-
-flowexclusion_total
-flowexclusion_recruited
-flowexclusion_screenfailure
-flowexclusion_modelling
-flowexclusion_inadequate
-```
-
-```{r supplementary figure 3, echo = FALSE, fig.cap = "Supplementary Figure 3.", fig.dim = c(10, 10)}
+```{r supplementary figure 3, echo = FALSE, fig.cap = "Supplementary Figure", fig.dim = c(10, 10)}
 
 allorganisms_cols <- c(kleb = "royalblue2", esbl = "gold1", 
                        ecoli = "hotpink", acineto = "wheat3", 
@@ -1896,7 +1987,6 @@ all_micro_plot_allorganisms <- ggplot(data = lab_allorganisms, aes(x = Source, y
                               "Maternal hand",
                               "Swaddling cloth",
                               "Cot",
-                              "Staff hand",
                               "Ward surfaces"))
 
 all_micro_plot_allorganisms
@@ -1905,7 +1995,7 @@ all_micro_plot_allorganisms
 
 ```
 
-```{r snp distance graph, echo = FALSE, message = FALSE, warning = FALSE, fig.dim = c(10, 10), fig.cap = "Supplementary Figure 4."}
+```{r snp distance graph, echo = FALSE, message = FALSE, warning = FALSE, fig.dim = c(10, 10), fig.cap = "Supplementary Figure"}
 
 #probability
 ggplot(data = density_combined) +
@@ -1928,7 +2018,7 @@ ggplot(data = density_combined) +
 
 ```
 
-```{r sensitivity analysis, echo = FALSE, message = FALSE, warning = FALSE, fig.cap = "Supplementary Figure 5.", fig.dim = c(10, 13)}
+```{r sensitivity analysis, echo = FALSE, message = FALSE, warning = FALSE, fig.cap = "Supplementary Figure", fig.dim = c(10, 13)}
 
 snp_zero <- 0
 snp_three <- 3
@@ -2079,7 +2169,7 @@ ggarrange(density_graph_zero, density_graph_three, density_graph_supp, density_g
 
 ```
 
-```{r density of flux mgems, echo = FALSE, echo = FALSE, message = FALSE, warning = FALSE, fig.cap = "Supplementary Figure 6.", fig.dim = c(10, 13)}
+```{r density of flux mgems, echo = FALSE, echo = FALSE, message = FALSE, warning = FALSE, fig.cap = "Supplementary Figure", fig.dim = c(10, 13)}
 
 #may delete these if they are not useful
 
@@ -2289,7 +2379,7 @@ ggarrange(density_graph_mgems_zero, density_graph_mgems_three, density_graph_mge
 
 
 
-```{r sensitivity analysis time, echo = FALSE, warning = FALSE, fig.cap = "Supplementary Figure 7."}
+```{r sensitivity analysis time, echo = FALSE, warning = FALSE, fig.cap = "Supplementary Figure"}
 
 baby_notime <- data.frame()
 for(i in uniqueref){
@@ -2317,7 +2407,7 @@ ggplot(baby_notime %>% filter(Lane.x %in% transmission_list)) +
 
 ```
 
-```{r fit metrics, echo = FALSE, message = FALSE, fig.cap = "Supplementary Figure 8.", dpi=600}
+```{r fit metrics, echo = FALSE, message = FALSE, fig.cap = "Supplementary Figure"}
 
 par(mfrow = c(2, 2))
 #plot(gof_stats.neoabx, main = '')
@@ -2325,7 +2415,7 @@ par(mfrow = c(2, 2))
 ```
 
 
-```{r quality control, message = FALSE, echo = FALSE, fig.dim = c(7, 10), fig.cap = "Supplementary Figure 9"}
+```{r quality control, message = FALSE, echo = FALSE, fig.dim = c(7, 10), fig.cap = "Supplementary Figure"}
 
 cat_coefs <- ggplot(coefs_long) +
   geom_line(aes(x = sample, y = value, colour = chain)) +
@@ -2922,9 +3012,27 @@ network_coef_mgems_twenty <- data.frame(Factor = c("Edges", "Cots", "Neonatal an
 
 ```
 
-```{figures, echo = FALSE, eval = FALSE}
+```{r figures, echo = FALSE, eval = FALSE}
 
 #figure 1
+# Open an SVG device
+#detach("package:igraph", unload = TRUE)
+#library(grid)
+#svglite("flowchart_figure.svg", width = 12, height = 16)
+#grid.newpage()
+#print(flowexclusion_total)
+#print(flowexclusion_recruited)
+#print(flowexclusion_screenfailure)
+#print(flowexclusion_modelling)
+#print(flowexclusion_inadequate)
+
+#connectGrob(flowexclusion_total, flowexclusion_recruited, "vertical")
+#connectGrob(flowexclusion_total, flowexclusion_screenfailure, "-")
+#connectGrob(flowexclusion_recruited, flowexclusion_modelling, "vertical")
+#connectGrob(flowexclusion_recruited, flowexclusion_inadequate, "-")
+
+#dev.off()
+
 ggsave(filename = "cres_model_figure_one_combined.svg", plot = three_micro, width = 12, height = 16, units = "in")
 ggsave(filename = "cres_model_figure_one_a.svg", plot = all_micro_plot, width = 12, height = 16, units = "in")
 ggsave(filename = "cres_model_figure_one_b.svg", plot = lolly_kleb_plot, width = 12, height = 16, units = "in")
